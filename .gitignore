@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行产物
+work/
+*_降AI版.docx
+*_降AI版.doc
+对照表.md
+
+# 真实论文与检测报告（绝不入库）
+*.docx
+*.doc
+*.pdf
+!examples/*.docx
+
+# 本地配置
+.env
+.env.local
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
