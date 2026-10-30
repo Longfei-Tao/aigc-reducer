@@ -1,0 +1,32 @@
+<svg viewBox="0 0 900 404" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>论文降 AIGC 率效果示意</title>
+<desc>同一段文字改写前后对比：删除主观表述、句号减少、数字与引用标记原样保留，自检通过。</desc>
+<style>
+.zh{font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.ttl{font-size:15px;font-weight:500}
+.tag{font-size:12px;font-weight:500}
+.body{font-size:13px;font-weight:400}
+.meta{font-size:12px;font-weight:400}
+</style>
+
+<text class="zh ttl" x="40" y="26" fill="#2C2C2A">论文降 AIGC 率 · 单段改写效果</text>
+
+<rect x="40" y="48" width="820" height="124" rx="10" fill="#FFFFFF" stroke="#D3D1C7" stroke-width="0.5"/>
+<text class="zh tag" x="60" y="72" fill="#5F5E5A">改前</text>
+<text class="zh body" x="60" y="100" fill="#2C2C2A">本研究旨在探讨术后早期营养干预对加速康复外科效果的影响。通过对 2023 年 6 月</text>
+<text class="zh body" x="60" y="126" fill="#2C2C2A">至 2024 年 5 月期间收治的 186 例患者进行回顾性分析，<tspan fill="#A32D2D" font-weight="500">我们认为</tspan>早期营养干预能够显著提升</text>
+<text class="zh body" x="60" y="152" fill="#2C2C2A">患者的康复质量，缩短住院时间 [1]。</text>
+
+<line x1="450" y1="172" x2="450" y2="196" stroke="#888780" stroke-width="1.5"/>
+<path d="M444 190L450 198L456 190" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+<rect x="40" y="200" width="820" height="124" rx="10" fill="#EAF3DE" stroke="#639922" stroke-width="0.5"/>
+<text class="zh tag" x="60" y="224" fill="#3B6D11">改后</text>
+<text class="zh body" x="60" y="252" fill="#173404">本研究主要看术后早期营养干预对加速康复外科效果有没有影响，对 2023 年 6 月至</text>
+<text class="zh body" x="60" y="278" fill="#173404">2024 年 5 月收治的 186 例患者做了回顾性分析，发现早期营养干预能提升患者的康复</text>
+<text class="zh body" x="60" y="304" fill="#173404">质量，住院时间也缩短了 [1]。</text>
+
+<text class="zh meta" x="40" y="356" fill="#5F5E5A"><tspan>字数 110 → 104</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18">句号 2 → 1</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18">数字 5/5 保留</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18">引用 [1] 保留</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18" fill="#3B6D11" font-weight="500">自检 PASS</tspan></text>
+
+<text class="zh meta" x="40" y="382" fill="#888780">主观表述「我们认为」已删除，专业词「显著提升」换为「能提升」，段落样式与字体不受影响。</text>
+</svg>

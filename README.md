@@ -1,10 +1,29 @@
 # AIGC Reducer · 论文降 AIGC 率
 
-把一篇论文 Word 和一份 AIGC 检测报告丢进来，输出**「文字被改写、排版原样保留」**的新文档，外加逐段改动对照表和硬指标自检报告。
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
+[![Agent Skills](https://img.shields.io/badge/format-Agent%20Skills-6E56CF.svg)](https://github.com/anthropics/skills)
 
-面向学位论文、期刊投稿稿、开题报告的 AIGC 率整改。
+**给中文论文做「表达层整改」：只换文字，样式、数据、引用一个字不动。**
 
----
+Rewrite the wording of Chinese academic papers to lower AIGC-detection scores — while every style, table, number and citation stays exactly where it was.
+
+![效果示意](assets/demo.svg)
+
+## 目录
+
+- [它解决什么问题](#它解决什么问题)
+- [它不动什么](#它不动什么)
+- [改写指令](#改写指令)
+- [安装](#安装)
+- [工作流](#工作流)
+- [命令参考](#命令参考)
+- [为什么能保住排版](#为什么能保住排版)
+- [换成你自己的指令](#换成你自己的指令)
+- [目录结构](#目录结构)
+- [常见问题](#常见问题)
+- [贡献](#贡献)
+- [关于学术诚信](#关于学术诚信)
 
 ## 它解决什么问题
 
@@ -14,9 +33,9 @@
 2. **改坏版式** —— 复制到别处改写再粘回来，字号、缩进、脚注全乱
 3. **改过头** —— 为了降疑似度把数字、引用标记一起改掉，变成学术硬伤
 
-本工具把这三件事拆开：用脚本管**定位**和**回写**，把**遣词**交给模型，最后用脚本做**硬指标自检**。改写只发生在段落内部的文字上，不重建文档，所以样式、表格、图片、页眉页脚都不受影响。
+本工具把这三件事拆开：脚本管**定位**和**回写**，模型管**遣词**，最后用脚本做**硬指标自检**。改写只发生在段落内部的文字上，不重建文档，所以样式、表格、图片、页眉页脚都不受影响。
 
-**全程本地处理。** `docx_tool.py` 只依赖 Python 标准库和 `python-docx`，不联网、不读取任何外部配置、不把论文内容发到任何地方。论文和检测报告始终留在你自己的电脑上。
+**全程本地处理。** `docx_tool.py` 只依赖 Python 标准库和 `python-docx`，不联网、不读取外部配置、不把论文内容发到任何地方。论文和检测报告始终留在你自己的电脑上。
 
 ## 它不动什么
 
@@ -33,9 +52,37 @@
 
 **不承诺分数。** 检测器模型持续迭代，本工具保证「严格按既定指令改到位」，不保证「降到某个百分比」。请用同一个检测器、同一口径复检，不同平台的分数不可横向比较。
 
-## 快速开始
+## 改写指令
 
-### 方式一：作为 WorkBuddy 技能
+`references/prompt.md` 里是五条改写指令，**这是整个技能的核心资产**——经过人工调参、实测有效的措辞，不是通用模板。
+
+```
+指令:1. 在不大幅改动原文总字数的情况下，只调整语序、替换同义词、变换主谓宾结构，
+        补充那些无主语句的主语，语言简化，让语句有逻辑且通顺，贴合基础论文写作规范。
+     2. 弱化专业感，要营造作者写起来很吃力、勉强写完了的普通文笔效果，
+        删除"我觉得、我认为"这些主观表述，整体文笔平实普通。
+     3. 弱化语句精炼度，贴合新手写作状态。
+     4. 减少句号使用，多用逗号、分号衔接；将长句拆分成短句，高频词换同义词，
+        专业词汇替换为通俗简单表达。
+     5. 打乱句子原有结构，灵活互换，把字句、被动句，调整语句语序，
+        不改变原文核心表意。删除过于口水话的口语化表达，保持基本语言逻辑,严格执行
+修改段落:
+<这一批的段落原文>
+```
+
+`batch` 命令会把这段指令**原样**贴在段落前面，一个字不改。
+
+`SKILL.md` 里为此写死了四条禁令：不许凭记忆复述指令、不许概括精简、不许自行追加「保持学术严谨性」之类的反向约束、不许「优化」它让更清晰。**它不需要被优化。**
+
+> 想换成自己的写法，见[换成你自己的指令](#换成你自己的指令)，代码一行都不用动。
+
+## 安装
+
+需要 Python 3.9+ 和 `python-docx`。
+
+### 方式一：装成 Agent 技能（推荐）
+
+适用于支持 [Agent Skills](https://github.com/anthropics/skills) 开放标准的工具，包括 WorkBuddy、Claude Code 等。
 
 ```bash
 git clone https://github.com/Longfei-Tao/aigc-reducer.git
@@ -49,13 +96,15 @@ Windows PowerShell 把第二行换成：
 Copy-Item -Recurse aigc-reducer\skills\aigc-reducer "$env:USERPROFILE\.workbuddy\skills\"
 ```
 
+Claude Code 用户把路径换成 `~/.claude/skills/` 即可，目录结构完全一致。
+
 装完的结构是 `~/.workbuddy/skills/aigc-reducer/`，里面有 `SKILL.md`、`references/`、`scripts/`。**技能目录是自包含的**，不依赖仓库里其他文件，单独拷给别人也能直接用。
 
 然后在对话里说「这两个文件：论文.docx 和知网报告.pdf，帮我降一下 AIGC 率」，技能会自动加载。
 
-### 方式二：直接命令行
+### 方式二：只用命令行
 
-需要 Python 3.9+。
+不装任何 Agent 也能用，但要手动搬文本（见[常见问题](#常见问题)第 3 条）。
 
 ```bash
 git clone https://github.com/Longfei-Tao/aigc-reducer.git
@@ -112,15 +161,15 @@ python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --id 3 \
   --prompt skills/aigc-reducer/references/prompt.md -o work/batch3.txt
 
 # 按章节标题（模糊匹配）
-python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --section "2.1 研究对象" --prompt skills/aigc-reducer/references/prompt.md
+python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json \
+  --section "2.1 研究对象" --prompt skills/aigc-reducer/references/prompt.md
 
 # 直接指定段落 id
-python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --ids 8,9,10 --prompt skills/aigc-reducer/references/prompt.md
+python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json \
+  --ids 8,9,10 --prompt skills/aigc-reducer/references/prompt.md
 ```
 
-`--prompt` 会把 `references/prompt.md` 里的改写指令原文拼在段落前面，输出**与手工发送完全等价**的请求文本。加 `-o` 存成纯文本，可直接复制粘贴。
-
-不加 `--prompt` 则只输出段落原文。
+`--prompt` 会把改写指令原文拼在段落前面，输出**与手工发送完全等价**的请求文本。加 `-o` 存成纯文本，可直接复制粘贴。
 
 这一条是为了消灭最常见的翻车方式：手抄段落 id 错一位，标题就被正文覆盖了。`batch` 会拒绝任何非正文段落。
 
@@ -167,7 +216,7 @@ python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.jso
 
 `fail` 时先修问题段再重新回写，不要带着已知问题交付。
 
-## 为什么改写能保住排版
+## 为什么能保住排版
 
 常见做法是把段落文字复制出去改写，再整段粘贴回来 —— 粘贴动作会重置 run 级格式，段内的加粗、斜体、上下标全丢。
 
@@ -175,7 +224,7 @@ python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.jso
 
 代价是**段内局部格式无法保留**（比如一句话里有三个字加粗），`write` 会把这类段落列出来告诉你。
 
-## 换成你自己的改写指令
+## 换成你自己的指令
 
 `references/prompt.md` 是默认指令，**不是硬编码**。想换成你习惯的写法，直接编辑这个文件，代码一行都不用动。
 
@@ -188,7 +237,11 @@ python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.jso
 ```
 aigc-reducer/
 ├── README.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
 ├── LICENSE
+├── assets/
+│   └── demo.svg                    # 效果示意图
 └── skills/aigc-reducer/            # 技能本体，整个目录拷到 ~/.workbuddy/skills/ 即可自包含运行
     ├── SKILL.md                    # 给模型看的操作手册
     ├── requirements.txt
@@ -200,15 +253,41 @@ aigc-reducer/
         └── make_sample.py          # 生成样例论文，用于试跑与回归
 ```
 
-## 常见坑
+## 常见问题
 
-1. **`.doc` 旧格式** —— python-docx 打不开，先用 Word「另存为」`.docx`
-2. **段落 id 错位** —— 不要手抄 id，用 `batch` 或从 `blocks.json` 的 `blocks[].id` 取
-3. **改写后字数暴涨** —— 通常是模型自行扩写，重跑该批并强调「不得增加原文没有的信息」
-4. **短文档批次数偏多** —— 遇标题强制断批，810 字的小论文也可能会分出 7 批，属正常
-5. **报告章节名与正文标题不一致** —— 报告写「3.2 研究方法」，正文写「3.2 研究方法与数据来源」，用模糊匹配，匹配不上让用户点
-6. **超过 5 万字的文档** —— 先只跑一节给用户看效果，认可后再继续，避免全量返工
-7. **自动编号的章节标题** —— Word 里是域，`p.text` 可能读不到编号，匹配以标题文字为主
+**1. 支持 `.doc` 和 PDF 吗？**
+
+不支持。`python-docx` 只认 `.docx`。请用 Word 打开后「另存为」一份 `.docx`，转换过程不改内容。
+
+**2. 能保证降到多少分？**
+
+不能，也不承诺。检测器模型持续迭代，同一个工具在不同平台、不同时间的结果都不一样。本工具保证的是「严格按指令改到位、硬指标不退化」，分数请拿回原平台复检。
+
+**3. 没有 WorkBuddy / Claude Code，能用吗？**
+
+能，但是半自动：跑 `split` 拆文档，跑 `batch --id N` 生成请求文本，手动粘给网页版 AI，把回答存成 `edits.json`，再跑 `write` 和 `check`。定位、保格式、自检都还是脚本干的，只是搬文本要手动。
+
+**4. 批次数为什么这么多？**
+
+遇标题强制断批，不跨节混改，方便按节核对。800 字的小论文也可能分出 7 批，属正常。
+
+**5. 改完打开文档发现某段加粗没了？**
+
+那一段内部原本有局部加粗。`write` 会把这类段落 id 列出来，需要手工补。这是「就地替换 run 文本」这一策略的已知代价。
+
+**6. 脚注跑位了？**
+
+引用本身不会丢，但位置可能随语句调整而偏移。`write` 会列出含脚注引用的段落，交付前建议核对。
+
+## 贡献
+
+欢迎提 Issue 和 PR，尤其是：
+
+- 适配其他检测平台的报告格式（扩充 `references/report-parsing.md`）
+- 新增硬指标检查项（比如术语一致性、被动句比例）
+- 补充不同学科语料的回归测试
+
+提交前请跑一遍样例回归，确认 `check` 仍为 `PASS`。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 关于学术诚信
 
@@ -224,4 +303,10 @@ aigc-reducer/
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+## 致谢
+
+- 技能格式遵循 Anthropic 发布的 [Agent Skills](https://github.com/anthropics/skills) 开放标准
+- Word 读写依赖 [python-docx](https://github.com/python-openxml/python-docx)
+- 改写指令来自实际投稿整改中的反复调参，非通用模板
