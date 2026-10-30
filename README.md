@@ -48,6 +48,7 @@ Rewrite the wording of Chinese academic papers to lower AIGC-detection scores �
 | 标题、图表题注 | 不参与改写，脚本强制拦截 |
 | 参考文献、致谢 | 不参与改写 |
 | 段落样式、字体、缩进 | 就地替换 run 文本，样式不动 |
+| 页眉、页脚、文本框、脚注正文 | 不参与改写，也不报警 |
 | 脚注 / 尾注 | 引用本身保留，位置可能偏移（会提示） |
 
 **不承诺分数。** 检测器模型持续迭代，本工具保证「严格按既定指令改到位」，不保证「降到某个百分比」。请用同一个检测器、同一口径复检，不同平台的分数不可横向比较。
@@ -124,15 +125,16 @@ flowchart LR
     C --> D[用户确认<br/>改哪几节]
     D --> E[batch<br/>取一批段落]
     E --> F[模型改写]
-    F --> G[write<br/>回写新文档]
-    G --> H[check<br/>硬指标自检]
-    H -->|fail| F
-    H -->|pass| I[对照表<br/>+ 复检提醒]
+    F --> G[apply<br/>对齐写入 edits.json]
+    G --> H[write<br/>回写新文档]
+    H --> I[check<br/>硬指标自检]
+    I -->|fail| F
+    I -->|pass| J[对照表<br/>+ 复检提醒]
 ```
 
 ## 命令参考
 
-四个子命令，串起来就是一条流水线。中间文件统一放 `work/`。
+六个子命令，串起来就是一条流水线。中间文件统一放 `work/`。
 
 > 以下命令以**论文所在目录**为当前工作目录，`work/` 会生成在论文旁边。脚本用相对仓库根的路径；若已把技能装到 `~/.workbuddy/skills/`，把 `skills/aigc-reducer/scripts/docx_tool.py` 换成该技能的绝对路径即可。
 
@@ -173,7 +175,27 @@ python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json \
 
 这一条是为了消灭最常见的翻车方式：手抄段落 id 错一位，标题就被正文覆盖了。`batch` 会拒绝任何非正文段落。
 
-### 3. `write` —— 回写新文档
+### 3. `apply` —— 把模型回复写回结果
+
+```bash
+# 把模型的回复存成 reply_3.txt（段落之间空一行），再对齐
+python skills/aigc-reducer/scripts/docx_tool.py apply work/blocks.json --batch 3 \
+  --input work/reply_3.txt -o work/edits.json --progress work/progress.json
+```
+
+按空行切分回复，**块数与本批段落数不相等就拒绝写入**，并列出期望 id 与实际块数。`edits.json` 累积写入，`progress.json` 自动回填。回复被 ``` 代码围栏包住时会自动剥掉；段落编号前缀（`1.` `（1）`）加 `--strip-number` 去掉。
+
+这一步消灭了最常见的翻车方式：模型返回 3 段而本批是 4 段，靠人眼对序号，结果把下一节的**标题**当成正文覆盖掉。
+
+### 4. `status` —— 看进度，中断后续跑
+
+```bash
+python skills/aigc-reducer/scripts/docx_tool.py status work/blocks.json
+```
+
+逐批列出「完成 / 部分 / 未开始」和下一批的批次号，不用自己翻 `progress.json`。
+
+### 5. `write` —— 回写新文档
 
 ```bash
 python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.json \
@@ -197,7 +219,7 @@ python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.jso
 
 会把 `[跳过]` / `[提示]` / `[警告]` 三类信息如实打印，包括局部加粗丢失、脚注位置偏移。
 
-### 4. `check` —— 硬指标自检
+### 6. `check` —— 硬指标自检
 
 ```bash
 python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.json -o work/check.json
@@ -211,6 +233,9 @@ python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.jso
 | 引用标记 `[n]` | 0 丢失 | **fail** |
 | 数字 / 百分比 | 0 丢失 | warn |
 | 「我觉得 / 我认为」 | 0 残留 | **fail** |
+| 指令回显（含「修改段落」字样） | 0 段 | **fail**，重新生成该批 |
+
+引用标记只认方括号写法 `[1]`、`[2-4]`（GB/T 7714）；中文论文里的年份括注「（2021）」不作引用计。含超链接的段落 `write` 会跳过，`check` 同样不计入指标，保证自检数字与成品一致。
 
 `verdict` 分三档：`pass` / `warn`（可交付但需说明）/ `fail`（必须修）。
 
@@ -242,6 +267,9 @@ aigc-reducer/
 ├── LICENSE
 ├── assets/
 │   └── demo.svg                    # 效果示意图
+├── tests/
+│   └── test_pipeline.py            # 回归测试：分类 / 对齐 / 拦截 / 自检（python -m unittest）
+├── .github/workflows/test.yml      # CI：Linux + Windows、Python 3.9/3.12
 └── skills/aigc-reducer/            # 技能本体，整个目录拷到 ~/.workbuddy/skills/ 即可自包含运行
     ├── SKILL.md                    # 给模型看的操作手册
     ├── requirements.txt
@@ -249,7 +277,7 @@ aigc-reducer/
     │   ├── prompt.md               # 改写指令（唯一来源，逐字执行）
     │   └── report-parsing.md       # 检测报告解析与章节定位
     └── scripts/
-        ├── docx_tool.py            # 四件套：split / batch / write / check
+        ├── docx_tool.py            # 六件套：split / batch / apply / status / write / check
         └── make_sample.py          # 生成样例论文，用于试跑与回归
 ```
 
@@ -265,7 +293,7 @@ aigc-reducer/
 
 **3. 没有 WorkBuddy / Claude Code，能用吗？**
 
-能，但是半自动：跑 `split` 拆文档，跑 `batch --id N` 生成请求文本，手动粘给网页版 AI，把回答存成 `edits.json`，再跑 `write` 和 `check`。定位、保格式、自检都还是脚本干的，只是搬文本要手动。
+能，但是半自动：跑 `split` 拆文档，跑 `batch --id N` 生成请求文本，手动粘给网页版 AI，把回复存成纯文本，跑 `apply --batch N` 写回结果，再跑 `write` 和 `check`。定位、对齐、保格式、自检都还是脚本干的，只是搬文本要手动。`apply` 会核对段数，段落之间记得空一行。
 
 **4. 批次数为什么这么多？**
 
@@ -278,6 +306,14 @@ aigc-reducer/
 **6. 脚注跑位了？**
 
 引用本身不会丢，但位置可能随语句调整而偏移。`write` 会列出含脚注引用的段落，交付前建议核对。
+
+**7. 页眉、页脚、文本框里的文字改了吗？**
+
+没有。这些位置不在 Word 的段落列表里，本工具不碰、也不报警。若检测报告标红的正是页眉或文本框内容，需要手工处理。
+
+**8. `apply` 报「段数对不上」怎么办？**
+
+模型把两段并成一段，或回复里多带了说明文字。重新生成该批即可；确要手工拼接时，按空行把段落分开（本批几段就切几块），再跑一遍 `apply`。它拒绝写入时不会留下半成品。
 
 ## 贡献
 

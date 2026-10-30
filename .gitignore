@@ -11,6 +11,9 @@ work/
 *_降AI版.doc
 对照表.md
 
+# 本地工作区数据
+.workbuddy/
+
 # 真实论文与检测报告（绝不入库）
 *.docx
 *.doc

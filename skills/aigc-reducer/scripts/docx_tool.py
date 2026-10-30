@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""docx_tool.py — 论文降 AIGC 率工具四件套
+"""docx_tool.py — 论文降 AIGC 率工具
 
   split   docx -> 段落清单 + 章节树 + 分批方案 (JSON)
   batch   从 split 结果里取一批段落，拼成可直接发送的改写请求
+  apply   模型回复 -> edits.json（段落数不符直接拒绝）
+  status  查看各批完成情况，中断后续跑
   write   改写结果 -> 新 docx（保留原样式）+ 对照表
   check   改写前后硬指标自检
 
@@ -13,6 +15,8 @@
 示例：
   python docx_tool.py split 论文.docx -o work/blocks.json --batch-chars 1200
   python docx_tool.py batch work/blocks.json --id 3 --prompt references/prompt.md -o work/batch3.txt
+  python docx_tool.py apply work/blocks.json --batch 3 --input work/reply3.txt -o work/edits.json
+  python docx_tool.py status work/blocks.json
   python docx_tool.py write 论文.docx work/edits.json -o 论文_降AI版.docx --diff-md work/对照表.md
   python docx_tool.py check 论文.docx work/edits.json -o work/check.json
 """
@@ -22,6 +26,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime
 
 try:
@@ -40,13 +45,27 @@ if hasattr(sys.stderr, "reconfigure"):
 # ---------------------------------------------------------------- 段落分类
 
 REF_MARKERS = ("参考文献", "references", "致谢", "acknowledg", "附录", "appendix")
-MANUAL_HEADING = re.compile(r"^\s*(第[一二三四五六七八九十百]+[章节篇]|\d+(?:\.\d+)*[\.、\s])")
+# 手打编号标题：第X章 / 一、 / （一） / 1.1 / 1、
+MANUAL_HEADING = re.compile(
+    r"^\s*(?:"
+    r"第[一二三四五六七八九十百]+[章节篇部]"
+    r"|[一二三四五六七八九十]+[、\.]"
+    r"|[（(][一二三四五六七八九十]+[）)]"
+    r"|\d+(?:\.\d+)*[\.、\s]"
+    r")"
+)
+# 以年份开头的正文（「2023 年共收集……」）不是标题，避免把正文判成标题而漏改
+YEAR_START = re.compile(r"^(?:19|20)\d{2}\s*年")
 CAPTION = re.compile(r"^\s*(图|表|Fig|Table)\s*[\d\-—\.]")
 BANNED_SUBJECTIVE = ("我觉得", "我认为", "在我看来", "窃以为", "笔者觉得")
 AI_CLICHE = ("综上所述", "值得注意的是", "不难发现", "由此可见", "显著提升", "至关重要")
+# 模型把指令回显进正文的典型特征。出现任意一条即为明确故障，不是措辞问题
+ECHO_MARKERS = ("修改段落", "在不大幅改动原文总字数的情况下")
 
 NUM_RE = re.compile(r"\d+(?:\.\d+)?")
-CITE_RE = re.compile(r"[\[（(]\s*\d+(?:\s*[-,，–—~]\s*\d+)*\s*[\]）)]")
+# 只认方括号引用（GB/T 7714 的 [1]、[1-3]、[1,2]）。
+# 中文论文里「（2021）」「（1）」多为年份括注或列表编号，误当引用会产生假的「引用丢失」fail
+CITE_RE = re.compile(r"[\[［【]\s*\d+(?:\s*[-,，–—~]\s*\d+)*\s*[\]］】]")
 
 # 只有 para 允许被改写；其余类型一律拦截，避免标题、图注被正文覆盖
 EDITABLE_KINDS = ("para",)
@@ -90,6 +109,8 @@ def looks_like_manual_heading(text):
     if not t or len(t) > 50:
         return False
     if t.endswith(("。", "！", "？", ".", ";", "；")):
+        return False
+    if YEAR_START.match(t):
         return False
     return bool(MANUAL_HEADING.match(t))
 
@@ -338,8 +359,6 @@ def cmd_batch(args):
             f.write(payload)
 
     print(f"[batch] {label}", file=sys.stderr)
-    if section:
-        print(f"  章节   {section}", file=sys.stderr)
     print(f"  段落   {len(ids)} 段 / {chars} 字", file=sys.stderr)
     print(f"  id 顺序 {','.join(str(i) for i in ids)}", file=sys.stderr)
     if args.output:
@@ -439,6 +458,15 @@ def cmd_write(args):
             f"[错误] {len(blocked)} 个 id 指向的不是正文段落，已全部拒绝回写：\n  {detail}\n"
             "这类段落（标题、图注、参考文献、公式）被正文覆盖后很难复原。\n"
             "请核对 blocks.json 的 blocks[].id；确需改写请加 --allow-non-para。"
+        )
+
+    echo_ids = [(pid, echo_hits(t)) for pid, t in sorted(edits.items()) if echo_hits(t)]
+    if echo_ids:
+        detail = "\n  ".join(f"{pid} -> 含「{','.join(h)}」：{edits[pid][:40]}" for pid, h in echo_ids)
+        sys.exit(
+            f"[错误] {len(echo_ids)} 段把改写指令回显进了正文，拒绝回写：\n  {detail}\n"
+            "说明上一批没有得到「只包含段落正文」的回复。请重新生成该批，"
+            "或检查 apply 是否把整段回复当成了一个段落。"
         )
 
     applied, missing, no_run = 0, [], 0
@@ -561,6 +589,14 @@ def write_diff_md(src, edits, path):
 
 # ---------------------------------------------------------------- check
 
+def numeric_key(s):
+    """数字字符串按数值排序，避免 '10' 排在 '9' 前面"""
+    try:
+        return (0, float(s), s)
+    except (TypeError, ValueError):
+        return (1, 0.0, s)
+
+
 def punct_count(t):
     return {
         "period": t.count("。"),
@@ -574,6 +610,31 @@ def strip_cites(t):
     return CITE_RE.sub("", t)
 
 
+def cite_numbers(t):
+    """抽出引用标记里的编号，只比编号不比方括号样式。
+
+    「[1,2]」写成「[1，2]」不算丢失；「[2-4]」展开成 2、3、4，
+    这样改写成「[2,3,4]」也不算丢失。
+    """
+    out = []
+    for m in CITE_RE.finditer(t):
+        token = re.sub(r"^[\[［【]|[\]］】]$", "", m.group(0))
+        prev, pending = None, False
+        for num, sep in re.findall(r"(\d+)\s*([-,，–—~]?)", token):
+            n = int(num)
+            if pending and prev is not None and prev < n <= prev + 50:
+                out += list(range(prev + 1, n))
+            out.append(n)
+            prev = n
+            pending = sep in "-–—~"
+    return out
+
+
+def echo_hits(t):
+    """新文本里是否夹带了指令回显（模型没有只返回改写后的段落）"""
+    return [m for m in ECHO_MARKERS if m in t]
+
+
 def cmd_check(args):
     doc = open_docx(args.docx)
     blocks = scan_blocks(doc)
@@ -585,18 +646,28 @@ def cmd_check(args):
 
     old_all, new_all = [], []
     per_para = []
+    # write 会跳过含超链接的段落，check 必须同样跳过，否则自检数字与成品不一致
+    skipped_link = []
+    echo_ids = []
     for pid in sorted(edits):
         if not (0 <= pid < len(paras)):
             continue
         if any(pid == b[0] for b in blocked):
             continue
-        old = (paras[pid].text or "").strip()
+        p = paras[pid]
+        if "<w:hyperlink" in p._element.xml and not args.force:
+            skipped_link.append(pid)
+            continue
+        old = (p.text or "").strip()
         new = edits[pid].strip()
+        hits = echo_hits(new)
+        if hits:
+            echo_ids.append((pid, hits))
         old_all.append(old)
         new_all.append(new)
         po, pn = punct_count(old), punct_count(new)
-        old_nums = set(NUM_RE.findall(strip_cites(old)))
-        new_nums = set(NUM_RE.findall(strip_cites(new)))
+        old_nums = Counter(NUM_RE.findall(strip_cites(old)))
+        new_nums = Counter(NUM_RE.findall(strip_cites(new)))
         per_para.append(
             {
                 "id": pid,
@@ -605,18 +676,25 @@ def cmd_check(args):
                 "chars_pct": round((len(new) - len(old)) / max(len(old), 1) * 100, 1),
                 "period_old": po["period"],
                 "period_new": pn["period"],
-                "numbers_lost": sorted(old_nums - new_nums),
-                "cites_lost": sorted(set(CITE_RE.findall(old)) - set(CITE_RE.findall(new))),
+                "numbers_lost": sorted(set(old_nums) - set(new_nums), key=numeric_key),
+                "numbers_reduced": sorted(
+                    f"{k}×{v}→×{new_nums.get(k, 0)}"
+                    for k, v in old_nums.items()
+                    if new_nums.get(k, 0) < v and k in new_nums
+                ),
+                "cites_lost": sorted(set(cite_numbers(old)) - set(cite_numbers(new))),
                 "banned": [w for w in BANNED_SUBJECTIVE if w in new],
+                "echo": hits,
             }
         )
 
     old_text, new_text = "".join(old_all), "".join(new_all)
     po, pn = punct_count(old_text), punct_count(new_text)
 
-    all_nums_lost, all_cites_lost, banned_hits = [], [], []
+    all_nums_lost, all_nums_reduced, all_cites_lost, banned_hits = [], [], [], []
     for r in per_para:
         all_nums_lost += r["numbers_lost"]
+        all_nums_reduced += r["numbers_reduced"]
         all_cites_lost += r["cites_lost"]
         banned_hits += r["banned"]
 
@@ -633,14 +711,24 @@ def cmd_check(args):
         issues.append(f"{len(blocked)} 个 id 不是正文段落，未计入自检：{detail}")
     if out_of_range:
         warnings.append(f"{len(out_of_range)} 个段落 id 越界，已忽略：{out_of_range[:10]}")
+    if skipped_link:
+        warnings.append(
+            f"{len(skipped_link)} 段含超链接，write 会跳过它们，本次未计入指标：{skipped_link[:10]}"
+        )
+    if echo_ids:
+        detail = "；".join(f"{i}({','.join(h)})" for i, h in echo_ids)
+        issues.append(f"{len(echo_ids)} 段把改写指令回显进了正文，必须重新生成：{detail}")
 
     if per_para:
         if abs(char_pct) > 10:
             warnings.append(f"字数变化 {char_pct}%，超出 ±10% 口径")
         if all_cites_lost:
-            issues.append(f"引用标记丢失 {len(all_cites_lost)} 处：{all_cites_lost[:8]}")
+            marks = "、".join(f"[{n}]" for n in all_cites_lost[:8])
+            issues.append(f"引用标记丢失 {len(all_cites_lost)} 处：{marks}")
         if all_nums_lost:
             warnings.append(f"数字未原样出现 {len(all_nums_lost)} 处：{all_nums_lost[:8]}")
+        if all_nums_reduced:
+            warnings.append(f"数字出现次数减少 {len(all_nums_reduced)} 处：{all_nums_reduced[:6]}")
         if banned_hits:
             issues.append(f"残留主观表述：{sorted(set(banned_hits))}")
         if po["period"] and period_pct > -20:
@@ -663,11 +751,14 @@ def cmd_check(args):
             "semicolon": {"old": po["semicolon"], "new": pn["semicolon"]},
         },
         "numbers_lost": all_nums_lost,
+        "numbers_reduced": all_nums_reduced,
         "cites_lost": all_cites_lost,
         "banned_hits": sorted(set(banned_hits)),
         "ai_cliche_left": [w for w in AI_CLICHE if w in new_text],
+        "echo_ids": [i for i, _ in echo_ids],
         "blocked_ids": [b[0] for b in blocked],
         "out_of_range_ids": out_of_range,
+        "skipped_link_ids": skipped_link,
         "issues": issues,
         "warnings": warnings,
         "verdict": verdict,
@@ -683,6 +774,161 @@ def cmd_check(args):
     for x in warnings:
         print(f"  [!] {x}")
     print(f"  报告 -> {args.output}")
+
+
+# ---------------------------------------------------------------- apply / status
+
+def read_text(path):
+    """读模型回复：优先 UTF-8，Windows 上常见 GB18030 也一并兼容"""
+    if not os.path.exists(path):
+        sys.exit(f"[错误] 文件不存在：{path}")
+    for enc in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                return f.read()
+        except UnicodeDecodeError:
+            continue
+    sys.exit(f"[错误] 读不出 {os.path.basename(path)} 的编码，请另存为 UTF-8 再试")
+
+
+def split_reply(text, strip_number=False):
+    """把模型回复切成段落块。
+
+    规则：按空行分块；块内硬换行直接合并（中文正文不应带硬换行）；
+    先剔除整段包裹的 ``` 代码围栏。切出来的块数必须与段落数一致。
+    """
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+    t = re.sub(r"(?m)^\s*```[^\n]*$", "", t)
+    chunks = [c.strip() for c in re.split(r"\n\s*\n", t)]
+    chunks = [c for c in chunks if c]
+    if strip_number:
+        chunks = [
+            re.sub(r"^\s*(?:\d+\s*[\.、)]|[（(]\s*\d+\s*[）)])\s*", "", c) for c in chunks
+        ]
+    return [re.sub(r"\s*\n\s*", "", c) for c in chunks if c.strip()]
+
+
+def parse_ids_arg(raw):
+    try:
+        return [int(x) for x in raw.replace("，", ",").split(",") if x.strip()]
+    except ValueError:
+        sys.exit(f"[错误] --ids 只接受逗号分隔的整数，收到：{raw}")
+
+
+def cmd_apply(args):
+    data = load_json(args.blocks)
+    batches = data["batches"]
+    block_map = {b["id"]: b for b in data["blocks"]}
+
+    if args.batch is not None:
+        hit = [b for b in batches if b["batch_id"] == args.batch]
+        if not hit:
+            sys.exit(f"[错误] 没有第 {args.batch} 批，共 {len(batches)} 批")
+        ids = list(hit[0]["para_ids"])
+        label = f"批次 {args.batch}（{hit[0]['section']}）"
+    elif args.ids:
+        ids = parse_ids_arg(args.ids)
+        label = "自定义段落"
+    else:
+        sys.exit("[错误] 需要 --batch 或 --ids 之一")
+
+    if not ids:
+        sys.exit("[错误] 这一批没有可改写的正文段落")
+
+    bad = [i for i in ids if i not in block_map]
+    if bad:
+        sys.exit(f"[错误] blocks 里不存在这些段落 id：{bad}")
+    blocked = [i for i in ids if block_map[i]["kind"] not in EDITABLE_KINDS]
+    if blocked:
+        detail = "\n  ".join(
+            f"{i} -> {KIND_LABEL.get(block_map[i]['kind'], block_map[i]['kind'])}：{block_map[i]['text'][:30]}"
+            for i in blocked
+        )
+        sys.exit(f"[错误] 这些 id 不是正文段落，不能参与改写：\n  {detail}")
+
+    reply = read_text(args.input) if args.input else sys.stdin.read()
+    chunks = split_reply(reply, args.strip_number)
+
+    if len(chunks) != len(ids):
+        got = "\n  ".join(f"[{n + 1}] {c[:36]}…" for n, c in enumerate(chunks[:8])) or "  （空回复）"
+        sys.exit(
+            f"[错误] 段数对不上，拒绝写入。\n"
+            f"  {label}：需要 {len(ids)} 段，回复里切出 {len(chunks)} 块。\n"
+            f"  期望的段落 id：{','.join(str(i) for i in ids)}\n"
+            f"  切出来的块（前 8 块）：\n  {got}\n"
+            "  常见原因：模型把两段并成一段、多返回了说明文字、或段落之间漏了空行。\n"
+            "  处理：重新生成该批；确需手工拼接时，先按空行把段落分开再重跑 apply。"
+        )
+
+    edits = {}
+    if os.path.exists(args.edits):
+        edits = {str(k): v for k, v in load_edits(args.edits).items()}
+    before = len(edits)
+    for pid, chunk in zip(ids, chunks):
+        edits[str(pid)] = chunk
+
+    drift = []
+    for pid, chunk in zip(ids, chunks):
+        old_len = block_map[pid]["chars"] or 1
+        pct = (len(chunk) - old_len) / old_len * 100
+        if abs(pct) > 15:
+            drift.append(f"{pid}({pct:+.0f}%)")
+
+    if args.dry_run:
+        print(f"[apply] 试运行 {label}：{len(ids)} 段全部对齐，未写文件")
+        for pid, chunk in zip(ids, chunks):
+            print(f"  {pid}: {chunk[:48]}")
+        return
+
+    write_json(args.edits, edits)
+    print(f"[apply] {label}：写入 {len(ids)} 段 -> {args.edits}（累计 {before} -> {len(edits)} 段）")
+    if drift:
+        print(
+            f"  [提示] {len(drift)} 段字数偏离原文超过 ±15%：{drift[:8]}"
+            "（改写到位的话应该接近原文长度）"
+        )
+
+    if args.progress:
+        prog = {"total_batches": len(batches), "done": [], "failed": [], "updated_at": ""}
+        if os.path.exists(args.progress):
+            try:
+                prog.update(load_json(args.progress))
+            except SystemExit:
+                print(f"  [提示] {args.progress} 读不出来，已重建进度文件", file=sys.stderr)
+        prog["total_batches"] = len(batches)
+        done = set(prog.get("done") or [])
+        if args.batch is not None:
+            done.add(args.batch)
+            prog["failed"] = [x for x in (prog.get("failed") or []) if x != args.batch]
+        prog["done"] = sorted(done)
+        prog["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        write_json(args.progress, prog)
+        print(f"  进度 {len(prog['done'])}/{len(batches)} 批 -> {args.progress}")
+
+
+def cmd_status(args):
+    data = load_json(args.blocks)
+    edits = {}
+    if os.path.exists(args.edits):
+        edits = load_edits(args.edits)
+    batches = data["batches"]
+    done_batches = 0
+    print(f"[status] {os.path.basename(data.get('source') or args.blocks)}  共 {len(batches)} 批")
+    for b in batches:
+        ids = b["para_ids"]
+        got = [i for i in ids if i in edits]
+        if len(got) == len(ids):
+            state, done_batches = "完成", done_batches + 1
+        elif got:
+            state = "部分"
+        else:
+            state = "未开始"
+        print(f"  批 {b['batch_id']:>2}  {state:<4} {len(got)}/{len(ids)} 段  {b['section'][:26]}")
+    print(f"  已写入段落 {len(edits)} 段；完成 {done_batches}/{len(batches)} 批")
+    if done_batches < len(batches):
+        nxt = next(b["batch_id"] for b in batches
+                   if len([i for i in b["para_ids"] if i in edits]) < len(b["para_ids"]))
+        print(f"  下一批：--batch {nxt}")
 
 
 # ---------------------------------------------------------------- utils
@@ -764,7 +1010,24 @@ def main():
     s4.add_argument("edits")
     s4.add_argument("-o", "--output", default="work/check.json")
     s4.add_argument("--allow-non-para", action="store_true", help="允许把非正文段落计入自检（默认忽略）")
+    s4.add_argument("--force", action="store_true", help="把含超链接的段落也计入自检（与 write --force 配套）")
     s4.set_defaults(func=cmd_check)
+
+    s5 = sub.add_parser("apply", help="模型回复 -> edits.json（按段落数严格对齐）")
+    s5.add_argument("blocks")
+    s5.add_argument("--batch", type=int, default=None, help="批次号")
+    s5.add_argument("--ids", default=None, help="直接指定段落 id，逗号分隔")
+    s5.add_argument("--input", default=None, help="模型回复的文本文件；省略则从 stdin 读")
+    s5.add_argument("-o", "--edits", default="work/edits.json", help="累积写入的 edits.json")
+    s5.add_argument("--progress", default=None, help="回填进度，如 work/progress.json")
+    s5.add_argument("--strip-number", action="store_true", help="去掉每块开头的「1.」「（1）」编号")
+    s5.add_argument("--dry-run", action="store_true", help="只校验对齐，不写文件")
+    s5.set_defaults(func=cmd_apply)
+
+    s6 = sub.add_parser("status", help="查看各批完成情况，便于中断后续跑")
+    s6.add_argument("blocks")
+    s6.add_argument("-e", "--edits", default="work/edits.json")
+    s6.set_defaults(func=cmd_status)
 
     args = ap.parse_args()
     args.func(args)

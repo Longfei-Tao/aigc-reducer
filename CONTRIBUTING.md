@@ -32,17 +32,37 @@ docs: 补充脚注偏移的手工核对步骤
 
 ### 改代码前
 
-先跑一遍样例回归，确认改动前是绿的：
+先跑回归，确认改动前是绿的：
+
+```bash
+# 仓库根目录，不需要 pytest
+python -m unittest discover -s tests -v
+```
+
+21 项全绿才算基线正常，不是绿的就先别改，那是基线出了问题。CI 会在 Linux + Windows、Python 3.9/3.12 上跑同一套测试。
+
+想手工走一遍全流程（改完跑一遍心里更踏实）：
 
 ```bash
 cd skills/aigc-reducer/scripts
 python make_sample.py -o ../../../样例.docx
 python docx_tool.py split ../../../样例.docx -o ../../../work/blocks.json
-# ……按 README 的四步走完
+python docx_tool.py batch ../../../work/blocks.json --id 1 --prompt ../references/prompt.md
+# 把回复存成 reply.txt（段落之间空一行）
+python docx_tool.py apply ../../../work/blocks.json --batch 1 --input reply.txt -o ../../../work/edits.json
 python docx_tool.py check ../../../样例.docx ../../../work/edits.json -o ../../../work/check.json
 ```
 
-预期 `[check] PASS`。不是 PASS 就先别改，那是基线出了问题。
+预期 `[check] PASS`。
+
+### 新增检查项或子命令
+
+改了 `docx_tool.py` 就要在 `tests/test_pipeline.py` 里补对应用例，尤其是：
+
+- 拦截类改动（新增拒绝路径）——要断言 exit code 非 0 且不生成文件
+- 判定类改动（分类、引用、字数口径）——要断言具体数值，不能只断言「不报错」
+
+测不到的改动不收。
 
 ### 三条硬约束
 
