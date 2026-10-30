@@ -16,6 +16,8 @@
 
 本工具把这三件事拆开：用脚本管**定位**和**回写**，把**遣词**交给模型，最后用脚本做**硬指标自检**。改写只发生在段落内部的文字上，不重建文档，所以样式、表格、图片、页眉页脚都不受影响。
 
+**全程本地处理。** `docx_tool.py` 只依赖 Python 标准库和 `python-docx`，不联网、不读取任何外部配置、不把论文内容发到任何地方。论文和检测报告始终留在你自己的电脑上。
+
 ## 它不动什么
 
 | 对象 | 处理方式 |
@@ -41,15 +43,27 @@ cp -r aigc-reducer/skills/aigc-reducer ~/.workbuddy/skills/
 pip install -r ~/.workbuddy/skills/aigc-reducer/requirements.txt
 ```
 
+Windows PowerShell 把第二行换成：
+
+```powershell
+Copy-Item -Recurse aigc-reducer\skills\aigc-reducer "$env:USERPROFILE\.workbuddy\skills\"
+```
+
+装完的结构是 `~/.workbuddy/skills/aigc-reducer/`，里面有 `SKILL.md`、`references/`、`scripts/`。**技能目录是自包含的**，不依赖仓库里其他文件，单独拷给别人也能直接用。
+
 然后在对话里说「这两个文件：论文.docx 和知网报告.pdf，帮我降一下 AIGC 率」，技能会自动加载。
 
 ### 方式二：直接命令行
 
+需要 Python 3.9+。
+
 ```bash
-pip install python-docx
 git clone https://github.com/Longfei-Tao/aigc-reducer.git
-cd aigc-reducer/examples
-python make_sample.py          # 生成一份样例论文，先拿它试手
+cd aigc-reducer
+pip install python-docx
+
+# 生成一份样例论文，先拿它试手
+python skills/aigc-reducer/scripts/make_sample.py -o 样例.docx
 ```
 
 ## 工作流
@@ -61,20 +75,22 @@ flowchart LR
     C --> D[用户确认<br/>改哪几节]
     D --> E[batch<br/>取一批段落]
     E --> F[模型改写]
-    F --> G[check<br/>硬指标自检]
-    G -->|fail| F
-    G -->|pass| H[write<br/>回写新文档]
-    H --> I[对照表<br/>+ 复检提醒]
+    F --> G[write<br/>回写新文档]
+    G --> H[check<br/>硬指标自检]
+    H -->|fail| F
+    H -->|pass| I[对照表<br/>+ 复检提醒]
 ```
 
 ## 命令参考
 
 四个子命令，串起来就是一条流水线。中间文件统一放 `work/`。
 
+> 以下命令以**论文所在目录**为当前工作目录，`work/` 会生成在论文旁边。脚本用相对仓库根的路径；若已把技能装到 `~/.workbuddy/skills/`，把 `skills/aigc-reducer/scripts/docx_tool.py` 换成该技能的绝对路径即可。
+
 ### 1. `split` —— 拆文档
 
 ```bash
-python scripts/docx_tool.py split 论文.docx -o work/blocks.json --batch-chars 1200
+python skills/aigc-reducer/scripts/docx_tool.py split 论文.docx -o work/blocks.json --batch-chars 1200
 ```
 
 输出段落清单、章节树、分批方案。看一眼摘要确认三件事：可改写字数、表格数（不参与改写）、分批数。
@@ -92,14 +108,14 @@ python scripts/docx_tool.py split 论文.docx -o work/blocks.json --batch-chars 
 
 ```bash
 # 按批次号
-python scripts/docx_tool.py batch work/blocks.json --id 3 \
-  --prompt references/prompt.md -o work/batch3.txt
+python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --id 3 \
+  --prompt skills/aigc-reducer/references/prompt.md -o work/batch3.txt
 
 # 按章节标题（模糊匹配）
-python scripts/docx_tool.py batch work/blocks.json --section "2.1 研究对象" --prompt references/prompt.md
+python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --section "2.1 研究对象" --prompt skills/aigc-reducer/references/prompt.md
 
 # 直接指定段落 id
-python scripts/docx_tool.py batch work/blocks.json --ids 8,9,10 --prompt references/prompt.md
+python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --ids 8,9,10 --prompt skills/aigc-reducer/references/prompt.md
 ```
 
 `--prompt` 会把 `references/prompt.md` 里的改写指令原文拼在段落前面，输出**与手工发送完全等价**的请求文本。加 `-o` 存成纯文本，可直接复制粘贴。
@@ -111,7 +127,7 @@ python scripts/docx_tool.py batch work/blocks.json --ids 8,9,10 --prompt referen
 ### 3. `write` —— 回写新文档
 
 ```bash
-python scripts/docx_tool.py write 论文.docx work/edits.json \
+python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.json \
   -o 论文_降AI版.docx --diff-md work/对照表.md
 ```
 
@@ -135,7 +151,7 @@ python scripts/docx_tool.py write 论文.docx work/edits.json \
 ### 4. `check` —— 硬指标自检
 
 ```bash
-python scripts/docx_tool.py check 论文.docx work/edits.json -o work/check.json
+python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.json -o work/check.json
 ```
 
 | 指标 | 合格线 | 不达标 |
@@ -159,22 +175,29 @@ python scripts/docx_tool.py check 论文.docx work/edits.json -o work/check.json
 
 代价是**段内局部格式无法保留**（比如一句话里有三个字加粗），`write` 会把这类段落列出来告诉你。
 
+## 换成你自己的改写指令
+
+`references/prompt.md` 是默认指令，**不是硬编码**。想换成你习惯的写法，直接编辑这个文件，代码一行都不用动。
+
+规则只有一条：文件里第一个 `---` 分隔线之后的内容会被整段取用，所以「修改段落:」要留在最后一行。`batch --prompt` 会原样拼接，不做任何加工、不增删一个字。
+
+同理，`references/report-parsing.md` 是检测报告的解析策略（章节名怎么匹配、匹配不上怎么降级），换平台时按实际情况调整即可。
+
 ## 目录结构
 
 ```
 aigc-reducer/
 ├── README.md
 ├── LICENSE
-├── examples/
-│   └── make_sample.py          # 生成样例论文，用于试跑与回归
-└── skills/aigc-reducer/        # 技能本体，整个目录拷到 ~/.workbuddy/skills/ 即可
-    ├── SKILL.md                # 给模型看的操作手册
+└── skills/aigc-reducer/            # 技能本体，整个目录拷到 ~/.workbuddy/skills/ 即可自包含运行
+    ├── SKILL.md                    # 给模型看的操作手册
     ├── requirements.txt
     ├── references/
-    │   ├── prompt.md           # 改写指令（唯一来源，逐字执行）
-    │   └── report-parsing.md   # 检测报告解析与章节定位
+    │   ├── prompt.md               # 改写指令（唯一来源，逐字执行）
+    │   └── report-parsing.md       # 检测报告解析与章节定位
     └── scripts/
-        └── docx_tool.py        # 四件套：split / batch / write / check
+        ├── docx_tool.py            # 四件套：split / batch / write / check
+        └── make_sample.py          # 生成样例论文，用于试跑与回归
 ```
 
 ## 常见坑

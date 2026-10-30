@@ -196,7 +196,7 @@ def build_batches(blocks, limit):
 # ---------------------------------------------------------------- split
 
 def cmd_split(args):
-    doc = Document(args.docx)
+    doc = open_docx(args.docx)
     blocks = scan_blocks(doc)
     sections = build_sections(blocks)
     batches = build_batches(blocks, args.batch_chars)
@@ -308,7 +308,7 @@ def cmd_batch(args):
         section = hits[0]["heading"]
         label = f"章节 {section}"
     else:
-        sys.exit("需要 --id / --ids / --section 之一")
+        sys.exit("[错误] 需要 --id / --ids / --section 之一，三者选一")
 
     missing = [i for i in ids if i not in block_map]
     if missing:
@@ -422,7 +422,7 @@ def cmd_write(args):
             "本工具不覆盖原文件，请换一个 -o 文件名，例如 论文_降AI版.docx"
         )
 
-    doc = Document(args.docx)
+    doc = open_docx(args.docx)
     blocks = scan_blocks(doc)
     block_map = {b["id"]: b for b in blocks}
     edits = load_edits(args.edits)
@@ -485,6 +485,20 @@ def cmd_write(args):
         applied += 1
         written.add(pid)
 
+    if edits and not written:
+        detail = []
+        if missing:
+            detail.append(f"{len(missing)} 个段落 id 越界（此文档共 {len(paras)} 段，id 从 0 开始计）")
+        if skipped_link:
+            detail.append(f"{len(skipped_link)} 段含超链接被跳过")
+        sys.exit(
+            "[错误] 没有任何段落被回写，未生成新文件。\n  "
+            + "\n  ".join(detail)
+            + "\n  请核对 edits.json 的 key 是否取自 blocks.json 的 blocks[].id。"
+        )
+    if not edits:
+        print("[提示] edits 里没有任何段落，输出的是原文档副本")
+
     os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
     doc.save(args.output)
 
@@ -509,7 +523,7 @@ def cmd_write(args):
 
 
 def write_diff_md(src, edits, path):
-    doc = Document(src)
+    doc = open_docx(src)
     paras = doc.paragraphs
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     lines = [
@@ -561,7 +575,7 @@ def strip_cites(t):
 
 
 def cmd_check(args):
-    doc = Document(args.docx)
+    doc = open_docx(args.docx)
     blocks = scan_blocks(doc)
     block_map = {b["id"]: b for b in blocks}
     edits = load_edits(args.edits)
@@ -619,18 +633,22 @@ def cmd_check(args):
         issues.append(f"{len(blocked)} 个 id 不是正文段落，未计入自检：{detail}")
     if out_of_range:
         warnings.append(f"{len(out_of_range)} 个段落 id 越界，已忽略：{out_of_range[:10]}")
-    if abs(char_pct) > 10:
-        warnings.append(f"字数变化 {char_pct}%，超出 ±10% 口径")
-    if all_cites_lost:
-        issues.append(f"引用标记丢失 {len(all_cites_lost)} 处：{all_cites_lost[:8]}")
-    if all_nums_lost:
-        warnings.append(f"数字未原样出现 {len(all_nums_lost)} 处：{all_nums_lost[:8]}")
-    if banned_hits:
-        issues.append(f"残留主观表述：{sorted(set(banned_hits))}")
-    if po["period"] and period_pct > -20:
-        warnings.append(f"句号仅减少 {abs(period_pct)}%，提示词要求「减少句号使用」")
-    if pn["comma"] <= po["comma"]:
-        warnings.append("逗号数未增加，未体现「多用逗号衔接」")
+
+    if per_para:
+        if abs(char_pct) > 10:
+            warnings.append(f"字数变化 {char_pct}%，超出 ±10% 口径")
+        if all_cites_lost:
+            issues.append(f"引用标记丢失 {len(all_cites_lost)} 处：{all_cites_lost[:8]}")
+        if all_nums_lost:
+            warnings.append(f"数字未原样出现 {len(all_nums_lost)} 处：{all_nums_lost[:8]}")
+        if banned_hits:
+            issues.append(f"残留主观表述：{sorted(set(banned_hits))}")
+        if po["period"] and period_pct > -20:
+            warnings.append(f"句号仅减少 {abs(period_pct)}%，提示词要求「减少句号使用」")
+        if pn["comma"] <= po["comma"]:
+            warnings.append("逗号数未增加，未体现「多用逗号衔接」")
+    else:
+        warnings.append("没有可自检的段落：edits 为空，或所有 id 都被拦截")
 
     verdict = "fail" if issues else ("warn" if warnings else "pass")
 
@@ -669,11 +687,40 @@ def cmd_check(args):
 
 # ---------------------------------------------------------------- utils
 
+def open_docx(path):
+    """打开 docx，把常见的打不开情况翻译成人话"""
+    if not os.path.exists(path):
+        sys.exit(f"[错误] 文件不存在：{path}")
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".doc":
+        sys.exit(
+            f"[错误] {os.path.basename(path)} 是旧版 .doc 格式，python-docx 读不了。\n"
+            "  请用 Word 打开后「另存为」→ Word 文档(*.docx)，再重试。"
+        )
+    try:
+        return Document(path)
+    except Exception as e:
+        sys.exit(
+            f"[错误] 打不开这个 docx：{path}\n"
+            f"  原因：{type(e).__name__}: {e}\n"
+            "  常见情况：文件损坏、设有打开密码、或者其实是改了扩展名的 .doc / PDF。\n"
+            "  排查办法：用 Word 打开它，「另存为」一份新的 .docx 再试。"
+        )
+
+
 def load_json(path):
     if not os.path.exists(path):
         sys.exit(f"[错误] 文件不存在：{path}")
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        sys.exit(
+            f"[错误] {os.path.basename(path)} 不是合法 JSON："
+            f"第 {e.lineno} 行第 {e.colno} 列附近，{e.msg}"
+        )
+    except UnicodeDecodeError:
+        sys.exit(f"[错误] {os.path.basename(path)} 不是 UTF-8 编码，请用 UTF-8 保存后再试")
 
 
 def write_json(path, obj):

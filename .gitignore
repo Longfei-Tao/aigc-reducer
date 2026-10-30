@@ -15,7 +15,6 @@ work/
 *.docx
 *.doc
 *.pdf
-!examples/*.docx
 
 # 本地配置
 .env

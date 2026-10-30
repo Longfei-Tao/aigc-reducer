@@ -97,11 +97,12 @@ def main():
 
     out = os.path.abspath(args.output)
     doc = build(out)
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docx_tool.py")
     print(f"已生成：{out}")
     print(f"段落 {len(doc.paragraphs)} 段  表格 {len(doc.tables)} 个")
     print("")
-    print("下一步（在 examples 目录下执行）：")
-    print(f'  python ../skills/aigc-reducer/scripts/docx_tool.py split "{args.output}" -o work/blocks.json')
+    print("下一步（复制即可执行）：")
+    print(f'  python "{tool}" split "{out}" -o work/blocks.json')
 
 
 if __name__ == "__main__":

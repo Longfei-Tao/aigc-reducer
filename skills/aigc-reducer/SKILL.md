@@ -200,4 +200,4 @@ python "<技能目录>/scripts/docx_tool.py" check "论文.docx" work/edits.json
 - 脚本：`scripts/docx_tool.py`，四个子命令 `split` / `batch` / `write` / `check`
 - 依赖 `python-docx`，缺失时安装：`python -m pip install python-docx`
 - 中间文件统一放论文同目录下的 `work/`，不要散落在根目录
-- 建议先用 `examples/make_sample.py` 生成样例论文跑一遍，熟悉输出格式再上真实稿
+- 上手前建议先用 `scripts/make_sample.py` 生成一篇样例论文跑通全流程，熟悉输出格式再上真实稿
