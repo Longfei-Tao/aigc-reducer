@@ -1,0 +1,9 @@
+# 统一换行符，避免 Windows 提交的 CRLF 在 Linux/macOS 上出问题
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.docx binary
+*.doc binary
+*.pdf binary
+*.png binary
+*.jpg binary
