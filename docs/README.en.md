@@ -34,6 +34,8 @@ Locations follow vendor documentation checked on 2026-10-31; this is not a claim
 
 Provide the original DOCX, the detection report, and this request:
 
+Before sending, turn off web search and enable a supported thinking/reasoning mode in the current client. This is the maintainer's recommended DeepSeek workflow, not a measured cross-model optimum. Installing the skill cannot toggle these settings. See the [runtime settings guide](../skills/aigc-reducer/references/runtime-settings.md) (Chinese). The skill avoids retrieval during rewriting and reports unavailable setting information honestly; cloud inference still requires a network connection.
+
 ```text
 Use aigc-reducer to revise the Chinese wording in the sections marked in this report.
 Preserve facts, numbers, citations, and the strength of the conclusions.
@@ -60,6 +62,6 @@ No paired detector reports are currently available. We do not claim a score redu
 python -m unittest discover -s tests -v
 ```
 
-The current local regression suite has 40 tests. CI is configured for Linux and Windows with Python 3.9 and 3.12; consult the workflow status for actual CI results.
+The current local regression suite has 42 tests. CI is configured for Linux and Windows with Python 3.9 and 3.12; consult the workflow status for actual CI results. These tests do not verify client switches, model connections, or detector performance.
 
 [MIT License](../LICENSE) · [Contributing](../CONTRIBUTING.md) · [Open-source review](OPEN_SOURCE_REVIEW.md)

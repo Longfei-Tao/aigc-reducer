@@ -6,6 +6,8 @@
 
 ## 共同准备
 
+正式改写前，在当前客户端关闭联网搜索并开启支持的深度思考 / 推理模式。**技能安装不会自动切换这两个设置。** [运行设置指南](../skills/aigc-reducer/references/runtime-settings.md)说明 DeepSeek、编辑器、Codex 和 API 的区别。保留本地文件与 Python 权限；关闭搜索不等于断开云端模型连接。
+
 ```bash
 git clone https://github.com/Longfei-Tao/aigc-reducer.git
 cd aigc-reducer
@@ -123,6 +125,7 @@ python -c "from pathlib import Path; import shutil; assert not Path('aigc-reduce
 使用 aigc-reducer。
 原稿：“论文.docx”；检测报告：“检测报告.pdf”。
 按报告标记处理对应正文，保持数据、引用和结论含义。
+改写不调用联网检索，开始前检查可见的模式设置，无法确认时如实提醒一次。
 内部完成必要校验，只交付修改后的 Word，不要审计报告、对照表或其他附件。
 ```
 
@@ -139,13 +142,13 @@ ChatGPT、Claude、Gemini、DeepSeek、豆包、Kimi、通义千问等只要能�
 python skills/aigc-reducer/scripts/docx_tool.py split "论文.docx" -o work/blocks.json
 ```
 
-2. 对照报告选择批次。生成第 1 批请求，打开文件，把内容完整复制给网页版 AI：
+2. 在网页版当前对话关闭联网搜索，开启模型支持的深度思考 / 推理模式。对照报告选择批次，生成第 1 批请求，打开文件，把内容完整复制给网页版 AI：
 
 ```bash
 python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json --id 1 --prompt skills/aigc-reducer/references/prompt.md -o work/batch1.txt
 ```
 
-附加的回复要求：“只返回本批改写段落，按原顺序，段间空一行，不要说明。”不改动默认五条指令。
+请求已包含不检索、事实保护及“只返回本批改写段落，按原顺序，段间空一行”的约束，保留完整请求即可。只保存最终改写正文，不复制思考内容。原有五条风格指令保持原文。
 
 3. 将模型回复存为 UTF-8 的 `work/reply1.txt`，再对齐写入：
 

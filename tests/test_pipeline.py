@@ -8,7 +8,7 @@
 
 覆盖范围：
     1. split 的段落分类（含中文编号标题、年份开头的正文）
-    2. batch 拼出的请求与 references/prompt.md 逐字节一致
+    2. batch 添加执行约束，并完整保留 references/prompt.md 的风格指令与原文
     3. write 的四类拦截与排版保留
     4. apply 的段落对齐，段数不符必须拒绝
     5. check 的引用识别、口径一致性、指令回显判定
@@ -144,15 +144,41 @@ class TestSplit(Base):
 
 
 class TestBatch(Base):
-    def test_payload_starts_with_verbatim_prompt(self):
+    def test_payload_keeps_verbatim_prompt_and_source_after_constraints(self):
         out = self.dir / "batch1.txt"
         code, _, err = run("batch", self.blocks, "--id", 1, "--prompt", PROMPT, "-o", out)
         self.assertEqual(code, 0, err)
         raw = PROMPT.read_text(encoding="utf-8")
         body = raw[re.search(r"(?m)^---\s*$", raw).end():].lstrip("\n").rstrip() + "\n"
         payload = out.read_text(encoding="utf-8")
-        self.assertTrue(payload.startswith(body), "batch 没有原样带上改写指令")
-        self.assertIn("修改段落:", payload)
+        self.assertIn("【改写指令】\n", payload)
+        constraints, request = payload.split("【改写指令】\n", 1)
+        self.assertIn("不调用联网搜索", constraints)
+        self.assertIn("不能切换或确认", constraints)
+        self.assertIn("只返回改写后的段落", constraints)
+        data = self.load_blocks()
+        ids = data["batches"][0]["para_ids"]
+        source = "\n\n".join(b["text"].strip() for i in ids for b in data["blocks"] if b["id"] == i)
+        self.assertEqual(request, body + source + "\n", "风格指令或原文被改动")
+
+    def test_raw_batch_without_prompt_stays_source_only(self):
+        code, payload, err = run("batch", self.blocks, "--id", 1)
+        self.assertEqual(code, 0, err)
+        data = self.load_blocks()
+        ids = data["batches"][0]["para_ids"]
+        source = "\n\n".join(b["text"].strip() for i in ids for b in data["blocks"] if b["id"] == i)
+        self.assertEqual(payload.replace("\r\n", "\n"), source + "\n")
+
+    def test_custom_prompt_also_gets_constraints(self):
+        custom = self.dir / "custom_prompt.md"
+        custom.write_text("说明\n---\n自定义风格，保留术语。\n修改段落:\n", encoding="utf-8")
+        code, payload, err = run("batch", self.blocks, "--id", 1, "--prompt", custom)
+        self.assertEqual(code, 0, err)
+        payload = payload.replace("\r\n", "\n")
+        self.assertIn("【改写指令】\n", payload)
+        constraints, request = payload.split("【改写指令】\n", 1)
+        self.assertIn("不调用联网搜索", constraints)
+        self.assertTrue(request.startswith("自定义风格，保留术语。\n修改段落:\n"))
 
     def test_rejects_non_para_ids(self):
         data = self.load_blocks()
@@ -182,10 +208,14 @@ class TestWrite(Base):
 
     def test_blocks_prompt_echo(self):
         edits = self.dir / "e_echo.json"
-        edits.write_text('{"1": "修改段落:本研究旨在探讨术后早期营养干预。"}', encoding="utf-8")
-        code, _, err = run("write", self.sample, edits, "-o", self.dir / "echo.docx")
-        self.assertEqual(code, 1)
-        self.assertIn("回显", err)
+        for index, marker in enumerate(("修改段落:", "【执行约束】", "【改写指令】")):
+            with self.subTest(marker=marker):
+                output = self.dir / f"echo_{index}.docx"
+                edits.write_text(json.dumps({"1": marker + "本研究旨在探讨术后早期营养干预。"}, ensure_ascii=False), encoding="utf-8")
+                code, _, err = run("write", self.sample, edits, "-o", output)
+                self.assertEqual(code, 1)
+                self.assertIn("回显", err)
+                self.assertFalse(output.exists())
 
     def test_preserves_styles_table_and_untouched_paras(self):
         edits = self.dir / "e_ok.json"

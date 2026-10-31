@@ -43,7 +43,7 @@ python skills/aigc-reducer/scripts/docx_tool.py batch work/blocks.json \
   --ids 8,9,10 --prompt skills/aigc-reducer/references/prompt.md
 ```
 
-`--prompt` 会把改写指令原文拼在段落前面，输出**与手工发送完全等价**的请求文本。加 `-o` 存成纯文本，可直接复制粘贴。
+`--prompt` 输出“执行约束 + 改写指令原文 + 原文段落”：先约束不检索、事实保护及回复格式，再逐字保留风格指令。默认和自定义提示词均适用；不传 `--prompt` 仍只输出原文。加 `-o` 存成纯文本，可完整复制粘贴。执行约束不能切换客户端开关，发送前按[运行设置指南](../skills/aigc-reducer/references/runtime-settings.md)关闭搜索并开启支持的推理模式。
 
 这一条是为了消灭最常见的翻车方式：手抄段落 id 错一位，标题就被正文覆盖了。`batch` 会拒绝任何非正文段落。
 
