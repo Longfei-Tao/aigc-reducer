@@ -14,7 +14,7 @@
   {"id": 42, "kind": "para", "style": "Normal", "chars": 186, "runs": 3, "text": "……"}
   ```
 
-- 如果涉及时效性，说明用的是哪个版本的技能（`SKILL.md` 里的 `version` 字段）
+- 如果涉及时效性，说明用的是哪个版本的技能（`SKILL.md` 的 `metadata.version` 字段）
 
 **不要上传真实论文。** 用 `make_sample.py` 生成的样例，或者自己捏一段结构相同、内容无关的假数据。论文是敏感材料，贴到公开 issue 里删不干净。
 
@@ -39,7 +39,7 @@ docs: 补充脚注偏移的手工核对步骤
 python -m unittest discover -s tests -v
 ```
 
-21 项全绿才算基线正常，不是绿的就先别改，那是基线出了问题。CI 会在 Linux + Windows、Python 3.9/3.12 上跑同一套测试。
+全部测试通过才算基线正常，不是绿的就先别改，那是基线出了问题。CI 会在 Linux + Windows、Python 3.9/3.12 上跑同一套测试。
 
 想手工走一遍全流程（改完跑一遍心里更踏实）：
 
@@ -53,7 +53,7 @@ python docx_tool.py apply ../../../work/blocks.json --batch 1 --input reply.txt 
 python docx_tool.py check ../../../样例.docx ../../../work/edits.json -o ../../../work/check.json
 ```
 
-预期 `[check] PASS`。
+check 结果取决于所填的改写；fail 退出 1，必须检查报告并修复。
 
 ### 新增检查项或子命令
 
@@ -86,7 +86,7 @@ python docx_tool.py check ../../../样例.docx ../../../work/edits.json -o ../..
 - 在 README 的指标表里加一行，标明属于 `warn` 还是 `fail`
 - 在 `CHANGELOG.md` 的 `Unreleased` 里记一笔
 
-判定为 `fail` 要克制：只有「改坏学术事实」（引用丢失、数据丢失、主观表述残留）才够格。风格类问题一律 `warn`。
+引用新增或丢失（包括次数）、数值/符号/百分号/比较方向变化属于 fail，需人工核对；风格类问题一律 warn。不要将自检通过等同于语义或检测效果通过。
 
 ### 适配新的检测平台
 
@@ -112,4 +112,4 @@ python docx_tool.py check ../../../样例.docx ../../../work/edits.json -o ../..
 
 ## 许可证
 
-提交 PR 即表示同意你的贡献以 [MIT](LICENSE) 协议发布。
+提交 PR 即表示你有权按 [MIT](LICENSE) 提供这些贡献。第三方代码、提示词、示例和图片须附来源、许可及所需声明；不能用项目 MIT 覆盖他人权利。不要复制来源不明的提示词或仅供服务使用的 Skill。

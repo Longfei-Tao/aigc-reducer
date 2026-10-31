@@ -29,7 +29,6 @@ TOOL = SCRIPTS / "docx_tool.py"
 PROMPT = ROOT / "skills" / "aigc-reducer" / "references" / "prompt.md"
 
 sys.path.insert(0, str(SCRIPTS))
-sys.path.insert(0, str(SCRIPTS))
 
 import docx_tool  # noqa: E402
 
@@ -170,7 +169,7 @@ class TestWrite(Base):
         edits.write_text('{"1": "x"}', encoding="utf-8")
         code, _, err = run("write", self.sample, edits, "-o", self.sample)
         self.assertEqual(code, 1)
-        self.assertIn("会覆盖原稿", err)
+        self.assertIn("拒绝覆盖", err)
 
     def test_blocks_non_para_target(self):
         edits = self.dir / "e_head.json"
@@ -231,8 +230,9 @@ class TestApply(Base):
         )
         self.assertEqual(code, 0, err)
         data = json.loads(out.read_text(encoding="utf-8"))
-        self.assertEqual(sorted(data), ["1", "2"])
-        self.assertEqual(data["1"], "第一段改写文字。")
+        self.assertEqual(data["source_sha256"], self.load_blocks()["source_sha256"])
+        self.assertEqual(sorted(data["edits"]), ["1", "2"])
+        self.assertEqual(data["edits"]["1"], "第一段改写文字。")
 
     def test_rejects_count_mismatch(self):
         out = self.dir / "e_apply_bad.json"
@@ -248,8 +248,8 @@ class TestApply(Base):
         run("apply", self.blocks, "--batch", 1, "-o", out, stdin="甲。\n\n乙。\n".encode("utf-8"))
         run("apply", self.blocks, "--batch", 3, "-o", out, stdin="```\n丙。\n```\n".encode("utf-8"))
         data = json.loads(out.read_text(encoding="utf-8"))
-        self.assertEqual(sorted(data, key=int), ["1", "2", "8"])
-        self.assertEqual(data["8"], "丙。")
+        self.assertEqual(sorted(data["edits"], key=int), ["1", "2", "8"])
+        self.assertEqual(data["edits"]["8"], "丙。")
 
     def test_progress_written(self):
         out = self.dir / "e_prog.json"
@@ -278,7 +278,7 @@ class TestCheck(Base):
         )
         out = self.dir / "c_cite.json"
         code, _, err = run("check", self.sample, edits, "-o", out)
-        self.assertEqual(code, 0, err)
+        self.assertEqual(code, 1, err)
         report = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(report["verdict"], "fail")
         self.assertEqual(report["cites_lost"], [2])

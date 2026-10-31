@@ -4,9 +4,9 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![Agent Skills](https://img.shields.io/badge/format-Agent%20Skills-6E56CF.svg)](https://github.com/anthropics/skills)
 
-**给中文论文做「表达层整改」：只换文字，样式、数据、引用一个字不动。**
+**给中文论文做表达整改：脚本定位与回写，模型改写，人工核对事实与成品。**
 
-Rewrite the wording of Chinese academic papers to lower AIGC-detection scores — while every style, table, number and citation stays exactly where it was.
+Edit wording in Chinese academic DOCX files with paragraph alignment and consistency checks. Detection scores, semantic equivalence and identical layout are not guaranteed.
 
 ![效果示意](assets/demo.svg)
 
@@ -33,29 +33,31 @@ Rewrite the wording of Chinese academic papers to lower AIGC-detection scores �
 2. **改坏版式** —— 复制到别处改写再粘回来，字号、缩进、脚注全乱
 3. **改过头** —— 为了降疑似度把数字、引用标记一起改掉，变成学术硬伤
 
-本工具把这三件事拆开：脚本管**定位**和**回写**，模型管**遣词**，最后用脚本做**硬指标自检**。改写只发生在段落内部的文字上，不重建文档，所以样式、表格、图片、页眉页脚都不受影响。
+本工具把这三件事拆开：脚本管**定位**和**回写**，模型管**遣词**，最后用脚本做**硬指标自检**。改写针对正文 run；保留段落属性，但字符格式可能丢失，文字长度变化也可能改变分页。图片、公式、域与修订等复杂对象默认排除。
 
-**全程本地处理。** `docx_tool.py` 只依赖 Python 标准库和 `python-docx`，不联网、不读取外部配置、不把论文内容发到任何地方。论文和检测报告始终留在你自己的电脑上。
+**脚本本地运行，模型环境另行确认。** Python 脚本不联网、不调用模型；Agent 或网页版 AI 可能把段落发送给云端模型。敏感、未公开论文应先确认宿主的数据处理方式。
+
+[完整架构审查、同类项目对比与改进计划](docs/REVIEW-2026-10-31.md) · [开源与法律边界](docs/OPEN_SOURCE_REVIEW.md)
 
 ## 它不动什么
 
 | 对象 | 处理方式 |
 |---|---|
-| 数字、百分比、年份 | 原样保留，丢失会告警 |
-| 引用标记 `[1]` | 0 丢失，丢失直接判 `fail` |
+| 数字、百分比、年份 | 数值、符号、百分号或次数变化判 fail；单位及语义仍需人工检查 |
+| 引用标记 `[1]` | 按编号和次数核对，丢失或新增判 `fail` |
 | 表格内容 | 不参与改写 |
 | 图片、公式 | 不参与改写 |
 | 标题、图表题注 | 不参与改写，脚本强制拦截 |
 | 参考文献、致谢 | 不参与改写 |
-| 段落样式、字体、缩进 | 就地替换 run 文本，样式不动 |
+| 段落样式、缩进 | 保留段落属性；局部字体格式与分页可能改变 |
 | 页眉、页脚、文本框、脚注正文 | 不参与改写，也不报警 |
 | 脚注 / 尾注 | 引用本身保留，位置可能偏移（会提示） |
 
-**不承诺分数。** 检测器模型持续迭代，本工具保证「严格按既定指令改到位」，不保证「降到某个百分比」。请用同一个检测器、同一口径复检，不同平台的分数不可横向比较。
+**不承诺分数。** 检测器模型持续迭代，本工具提供改写流程和规则检查，不保证「降到某个百分比」或语义等价。请用同一个检测器、同一口径复检，不同平台的分数不可横向比较。
 
 ## 改写指令
 
-`references/prompt.md` 里是五条改写指令，**这是整个技能的核心资产**——经过人工调参、实测有效的措辞，不是通用模板。
+`references/prompt.md` 里是五条改写指令，默认风格模板。仓库尚无可复核的模型或检测器对照实验，不能据此认定有效。
 
 ```
 指令:1. 在不大幅改动原文总字数的情况下，只调整语序、替换同义词、变换主谓宾结构，
@@ -73,7 +75,7 @@ Rewrite the wording of Chinese academic papers to lower AIGC-detection scores �
 
 `batch` 命令会把这段指令**原样**贴在段落前面，一个字不改。
 
-`SKILL.md` 里为此写死了四条禁令：不许凭记忆复述指令、不许概括精简、不许自行追加「保持学术严谨性」之类的反向约束、不许「优化」它让更清晰。**它不需要被优化。**
+`SKILL.md` 要求保持默认指令原文；事实、引用和术语含义保护优先。用户可以通过 `--prompt` 指定其他风格模板。
 
 > 想换成自己的写法，见[换成你自己的指令](#换成你自己的指令)，代码一行都不用动。
 
@@ -83,7 +85,7 @@ Rewrite the wording of Chinese academic papers to lower AIGC-detection scores �
 
 ### 方式一：装成 Agent 技能（推荐）
 
-适用于支持 [Agent Skills](https://github.com/anthropics/skills) 开放标准的工具，包括 WorkBuddy、Claude Code 等。
+按 [Agent Skills 规范](https://agentskills.io/specification) 组织。宿主是否自动发现、有哪些 PDF/OCR 工具取决于该客户端，未逐一实测。CC Switch 用户应通过 CC Switch 分发共享技能，不手工覆盖同步副本。
 
 ```bash
 git clone https://github.com/Longfei-Tao/aigc-reducer.git
@@ -101,7 +103,7 @@ Claude Code 用户把路径换成 `~/.claude/skills/` 即可，目录结构完�
 
 装完的结构是 `~/.workbuddy/skills/aigc-reducer/`，里面有 `SKILL.md`、`references/`、`scripts/`。**技能目录是自包含的**，不依赖仓库里其他文件，单独拷给别人也能直接用。
 
-然后在对话里说「这两个文件：论文.docx 和知网报告.pdf，帮我降一下 AIGC 率」，技能会自动加载。
+然后在对话里说「这两个文件：论文.docx 和知网报告.pdf，帮我润色表达」，宿主可据此选择技能（取决于客户端能力）。
 
 ### 方式二：只用命令行
 
@@ -134,7 +136,9 @@ flowchart LR
 
 ## 命令参考
 
-六个子命令，串起来就是一条流水线。中间文件统一放 `work/`。
+六个子命令串成流水线。每篇论文使用独立工作目录；下例 `work/` 只供单篇试跑。先 check 再 write，成品重新打开核对。`--blocks` 校验 split 后原稿是否改变；新版 apply 结果自带原稿指纹；只有旧无指纹格式不提供此选项时不能防止旧 id 错位。
+
+以下多行命令使用 Bash 续行语法。PowerShell 请合成一行（删除行末反斜杠）；SKILL.md 中有单行示例。
 
 > 以下命令以**论文所在目录**为当前工作目录，`work/` 会生成在论文旁边。脚本用相对仓库根的路径；若已把技能装到 `~/.workbuddy/skills/`，把 `skills/aigc-reducer/scripts/docx_tool.py` 换成该技能的绝对路径即可。
 
@@ -144,7 +148,7 @@ flowchart LR
 python skills/aigc-reducer/scripts/docx_tool.py split 论文.docx -o work/blocks.json --batch-chars 1200
 ```
 
-输出段落清单、章节树、分批方案。看一眼摘要确认三件事：可改写字数、表格数（不参与改写）、分批数。
+输出段落清单、章节列表、分批方案与源文件 SHA-256 指纹。章节列表只含每个标题的直接正文，不自动包含子节；单段超过上限时独立成批，不截断。看一眼摘要确认三件事：可改写字数、表格数（不参与改写）、分批数。
 
 ```
 [split] 论文样例.docx
@@ -198,11 +202,21 @@ python skills/aigc-reducer/scripts/docx_tool.py status work/blocks.json
 ### 5. `write` —— 回写新文档
 
 ```bash
-python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.json \
+python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.json --blocks work/blocks.json \
   -o 论文_降AI版.docx --diff-md work/对照表.md
 ```
 
-`edits.json` 格式：
+新版 `apply` 生成的 `edits.json` 自带来源指纹：
+
+```json
+{
+  "schema_version": 1,
+  "source_sha256": "<split 时源文件的 SHA-256>",
+  "edits": {"8": "改写后的第一段……", "9": "改写后的第二段……"}
+}
+```
+
+下面旧格式仍可被 write/check/status 读取，但没有来源指纹；apply 不会向其累积写入，请另建工作目录。旧格式使用 --blocks 并人工核对 id：
 
 ```json
 {
@@ -213,29 +227,31 @@ python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.jso
 
 **安全校验**（缺一不可）：
 
-- 输出路径与源文件相同 → 直接拒绝，绝不覆盖原稿
+- 任一输出与显式输入/其他输出重合 → 拒绝；write 也拒绝已存在的目标 docx
 - 目标 id 是标题 / 图注 / 参考文献 / 公式 → 拒绝并列出，需 `--allow-non-para` 才放行
 - 段落含超链接 → 默认跳过（改写会让链接文字重复），需 `--force`
 
-会把 `[跳过]` / `[提示]` / `[警告]` 三类信息如实打印，包括局部加粗丢失、脚注位置偏移。
+会把 `[跳过]` / `[提示]` / `[警告]` 三类信息如实打印，包括局部加粗丢失、脚注位置偏移；含图片/域/修订/批注或文字与脚注同 run 的段落拒绝改写。
 
 ### 6. `check` —— 硬指标自检
 
 ```bash
-python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.json -o work/check.json
+python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.json --blocks work/blocks.json -o work/check.json
 ```
 
 | 指标 | 合格线 | 不达标 |
 |---|---|---|
-| 全篇字数变化 | ±10% 内 | warn |
+| 已改段落字数变化 | ±10% 内 | warn |
 | 句号数量 | 减少 ≥20% | warn |
 | 逗号数量 | 必须增加 | warn |
-| 引用标记 `[n]` | 0 丢失 | **fail** |
-| 数字 / 百分比 | 0 丢失 | warn |
+| 引用标记 `[n]` | 编号与次数一致，无新增 | **fail** |
+| 数值 / 符号 / 百分号 / 比较方向 | 值及次数一致 | **fail**，需人工核对 |
 | 「我觉得 / 我认为」 | 0 残留 | **fail** |
 | 指令回显（含「修改段落」字样） | 0 段 | **fail**，重新生成该批 |
 
-引用标记只认方括号写法 `[1]`、`[2-4]`（GB/T 7714）；中文论文里的年份括注「（2021）」不作引用计。含超链接的段落 `write` 会跳过，`check` 同样不计入指标，保证自检数字与成品一致。
+引用标记检查方括号写法 `[1]`、`[2-4]`（GB/T 7714）；中文论文里的年份括注「（2021）」不作引用计。含超链接的段落 `write` 会跳过，`check` 同样不计入指标，保证自检数字与成品一致。
+
+`check` 比较原稿与 edits，**不读取成品 Word**。它不能证明术语、单位、否定和结论不变；交付前需重新打开成品并检查页面。fail 写出报告后退出 1，pass/warn 退出 0。
 
 `verdict` 分三档：`pass` / `warn`（可交付但需说明）/ `fail`（必须修）。
 
@@ -289,7 +305,7 @@ aigc-reducer/
 
 **2. 能保证降到多少分？**
 
-不能，也不承诺。检测器模型持续迭代，同一个工具在不同平台、不同时间的结果都不一样。本工具保证的是「严格按指令改到位、硬指标不退化」，分数请拿回原平台复检。
+不能，也不承诺。检测器模型持续迭代，同一个工具在不同平台、不同时间的结果都不一样。本工具提供改写流程和规则检查，分数请拿回原平台复检。
 
 **3. 没有 WorkBuddy / Claude Code，能用吗？**
 
@@ -323,13 +339,13 @@ aigc-reducer/
 - 新增硬指标检查项（比如术语一致性、被动句比例）
 - 补充不同学科语料的回归测试
 
-提交前请跑一遍样例回归，确认 `check` 仍为 `PASS`。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+提交前请运行单元测试及合成样例回归。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。测试通过不代表模型改写或检测效果通过。
 
 ## 关于学术诚信
 
 这个工具的定位是**表达层整改**，不是内容生产。
 
-- 它不改数据、不改结论、不添加原文没有的信息
+- 目标是保留数据、结论及信息；模型可能偏离，必须由作者复核
 - 它不会把别人的内容变成你的
 - 它不保证绕过任何检测系统
 
@@ -345,4 +361,4 @@ aigc-reducer/
 
 - 技能格式遵循 Anthropic 发布的 [Agent Skills](https://github.com/anthropics/skills) 开放标准
 - Word 读写依赖 [python-docx](https://github.com/python-openxml/python-docx)
-- 改写指令来自实际投稿整改中的反复调参，非通用模板
+- 默认指令、代码及 SVG：维护者确认原创或已获 MIT 发布授权；检测效果尚未建立可复核基准

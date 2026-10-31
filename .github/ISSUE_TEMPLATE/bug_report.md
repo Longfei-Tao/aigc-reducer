@@ -31,7 +31,7 @@ labels: bug
 
 - 操作系统：
 - Python 版本（`python --version`）：
-- 技能版本（`SKILL.md` 里的 `version` 字段）：
+- 技能版本（`SKILL.md` 的 `metadata.version` 字段）：
 - 用什么驱动的：WorkBuddy / Claude Code / 纯命令行 / 其他
 
 ## 段落结构

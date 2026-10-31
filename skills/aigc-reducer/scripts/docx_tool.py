@@ -22,15 +22,18 @@
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime
 
 try:
     from docx import Document
+    from docx.oxml.ns import qn
 except ImportError:
     sys.exit(
         "缺少依赖 python-docx。\n"
@@ -63,6 +66,7 @@ AI_CLICHE = ("综上所述", "值得注意的是", "不难发现", "由此可见
 ECHO_MARKERS = ("修改段落", "在不大幅改动原文总字数的情况下")
 
 NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+VALUE_RE = re.compile(r"[<>≤≥=]?\s*[+−-]?\d+(?:\.\d+)?(?:[eE][+−-]?\d+)?\s*[%％]?")
 # 只认方括号引用（GB/T 7714 的 [1]、[1-3]、[1,2]）。
 # 中文论文里「（2021）」「（1）」多为年份括注或列表编号，误当引用会产生假的「引用丢失」fail
 CITE_RE = re.compile(r"[\[［【]\s*\d+(?:\s*[-,，–—~]\s*\d+)*\s*[\]］】]")
@@ -76,7 +80,18 @@ KIND_LABEL = {
     "ref": "参考文献/致谢",
     "formula": "公式",
     "skip": "空白或图片",
+    "complex": "图片/域/修订等复杂对象",
 }
+
+
+def has_complex_content(p):
+    # r.text 赋值会清除 run 的其他 XML 子节点；这类结构不可进入替换路径。
+    tags = ("w:drawing", "w:pict", "w:object", "w:fldChar", "w:instrText",
+            "w:fldSimple", "w:sdt", "w:ins", "w:del", "w:commentRangeStart",
+            "w:commentRangeEnd", "w:commentReference", "w:txbxContent")
+    return any(run_has_note_ref(r) and r.text for r in p.runs) or any(
+        any(True for _ in p._p.iter(qn(tag))) for tag in tags
+    )
 
 
 def has_image(p):
@@ -124,6 +139,8 @@ def classify(p, in_refs):
         return "skip", text
     if has_formula(p):
         return "formula", text
+    if has_complex_content(p):
+        return "complex", text
     if not stripped:
         return "skip", text
 
@@ -144,11 +161,13 @@ def scan_blocks(doc):
     for i, p in enumerate(doc.paragraphs):
         text = p.text or ""
         low = text.strip().lower()
-        if not in_refs and is_heading_style(p) and any(m in low for m in REF_MARKERS):
+        marker_heading = low in ("参考文献", "references", "致谢", "acknowledgments",
+                                  "acknowledgements", "附录", "appendix")
+        if not in_refs and (marker_heading or (is_heading_style(p) and any(m in low for m in REF_MARKERS))):
             in_refs = True
         kind, txt = classify(p, in_refs)
-        if kind != "ref" and len(text.strip()) < 20 and any(k in low for k in REF_MARKERS):
-            in_refs = True
+        if marker_heading:
+            kind = "heading"
         blocks.append(
             {
                 "id": i,
@@ -217,6 +236,8 @@ def build_batches(blocks, limit):
 # ---------------------------------------------------------------- split
 
 def cmd_split(args):
+    if args.batch_chars <= 0:
+        sys.exit("[错误] --batch-chars 必须是正整数")
     doc = open_docx(args.docx)
     blocks = scan_blocks(doc)
     sections = build_sections(blocks)
@@ -232,6 +253,7 @@ def cmd_split(args):
 
     out = {
         "source": os.path.abspath(args.docx),
+        "source_sha256": file_digest(args.docx),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "batch_chars": args.batch_chars,
         "summary": {
@@ -324,7 +346,7 @@ def cmd_batch(args):
             )
         if len(hits) > 1:
             names = [s["heading"] for s in hits]
-            print(f"[提示] 「{args.section}」匹配到 {len(hits)} 节，取第一节：{names[0]}", file=sys.stderr)
+            sys.exit(f"[错误] 「{args.section}」匹配到多节：{names}，请用 --id 或 --ids 明确范围")
         ids = list(hits[0]["para_ids"])
         section = hits[0]["heading"]
         label = f"章节 {section}"
@@ -343,6 +365,8 @@ def cmd_batch(args):
         sys.exit(f"[错误] 这些 id 不是正文段落，不能参与改写：\n  {detail}")
     if not ids:
         sys.exit("[错误] 这一批没有可改写的正文段落")
+    if len(ids) != len(set(ids)):
+        sys.exit("[错误] 段落 id 重复，拒绝处理")
 
     texts = [block_map[i]["text"].strip() for i in ids]
     chars = sum(len(t) for t in texts)
@@ -374,6 +398,10 @@ def cmd_batch(args):
 
 def load_edits(path):
     data = load_json(path)
+    if isinstance(data, dict) and "schema_version" in data:
+        if data["schema_version"] != 1 or not isinstance(data.get("edits"), dict):
+            sys.exit("[错误] 不支持的 edits 版本或结构")
+        data = data["edits"]
     if isinstance(data, dict):
         items = data
     elif isinstance(data, list):
@@ -435,6 +463,10 @@ def format_sig(r):
 
 
 def cmd_write(args):
+    verify_blocks_source(args.blocks, args.docx)
+    verify_edits_source(args.edits, args.docx)
+    if os.path.exists(args.output):
+        sys.exit("[错误] 输出文件已存在，请使用新的 -o 文件名")
     if same_file(args.docx, args.output):
         sys.exit(
             "[错误] 输出文件与源文件相同，会覆盖原稿。\n"
@@ -448,6 +480,9 @@ def cmd_write(args):
     paras = doc.paragraphs
 
     out_of_range, blocked = check_targets(paras, edits, block_map, args.allow_non_para)
+    complex_ids = [pid for pid in edits if 0 <= pid < len(paras) and has_complex_content(paras[pid])]
+    if complex_ids:
+        sys.exit(f"[错误] 段落含不可安全替换的复杂对象，拒绝回写：{complex_ids}")
     for pid in out_of_range:
         print(f"  警告：段落 id {pid} 越界，已跳过", file=sys.stderr)
     if blocked:
@@ -626,7 +661,7 @@ def cite_numbers(t):
                 out += list(range(prev + 1, n))
             out.append(n)
             prev = n
-            pending = sep in "-–—~"
+            pending = bool(sep) and sep in "-–—~"
     return out
 
 
@@ -636,6 +671,8 @@ def echo_hits(t):
 
 
 def cmd_check(args):
+    verify_blocks_source(args.blocks, args.docx)
+    verify_edits_source(args.edits, args.docx)
     doc = open_docx(args.docx)
     blocks = scan_blocks(doc)
     block_map = {b["id"]: b for b in blocks}
@@ -668,6 +705,9 @@ def cmd_check(args):
         po, pn = punct_count(old), punct_count(new)
         old_nums = Counter(NUM_RE.findall(strip_cites(old)))
         new_nums = Counter(NUM_RE.findall(strip_cites(new)))
+        old_cites, new_cites = Counter(cite_numbers(old)), Counter(cite_numbers(new))
+        old_values = Counter(re.sub(r"\s+", "", n) for n in VALUE_RE.findall(strip_cites(old)))
+        new_values = Counter(re.sub(r"\s+", "", n) for n in VALUE_RE.findall(strip_cites(new)))
         per_para.append(
             {
                 "id": pid,
@@ -682,7 +722,9 @@ def cmd_check(args):
                     for k, v in old_nums.items()
                     if new_nums.get(k, 0) < v and k in new_nums
                 ),
-                "cites_lost": sorted(set(cite_numbers(old)) - set(cite_numbers(new))),
+                "cites_lost": sorted((old_cites - new_cites).elements()),
+                "cites_added": sorted((new_cites - old_cites).elements()),
+                "values_changed": old_values != new_values,
                 "banned": [w for w in BANNED_SUBJECTIVE if w in new],
                 "echo": hits,
             }
@@ -706,6 +748,11 @@ def cmd_check(args):
     )
 
     issues, warnings = [], []
+    for r in per_para:
+        if r["cites_added"]:
+            issues.append(f"段落 {r['id']} 新增引用标记：{r['cites_added']}")
+        if r["values_changed"]:
+            issues.append(f"段落 {r['id']} 数值、符号、百分号或出现次数改变，需人工核对")
     if blocked:
         detail = "；".join(f"{i}({KIND_LABEL.get(k, k)})" for i, k, _ in blocked)
         issues.append(f"{len(blocked)} 个 id 不是正文段落，未计入自检：{detail}")
@@ -774,6 +821,8 @@ def cmd_check(args):
     for x in warnings:
         print(f"  [!] {x}")
     print(f"  报告 -> {args.output}")
+    if verdict == "fail":
+        raise SystemExit(1)
 
 
 # ---------------------------------------------------------------- apply / status
@@ -803,7 +852,7 @@ def split_reply(text, strip_number=False):
     chunks = [c for c in chunks if c]
     if strip_number:
         chunks = [
-            re.sub(r"^\s*(?:\d+\s*[\.、)]|[（(]\s*\d+\s*[）)])\s*", "", c) for c in chunks
+            re.sub(r"^\s*(?:\d+\s*\.(?!\d)|\d+\s*[、)]|[（(]\s*\d+\s*[）)])\s*", "", c) for c in chunks
         ]
     return [re.sub(r"\s*\n\s*", "", c) for c in chunks if c.strip()]
 
@@ -817,6 +866,7 @@ def parse_ids_arg(raw):
 
 def cmd_apply(args):
     data = load_json(args.blocks)
+    verify_blocks_source(args.blocks, data.get("source"))
     batches = data["batches"]
     block_map = {b["id"]: b for b in data["blocks"]}
 
@@ -834,6 +884,8 @@ def cmd_apply(args):
 
     if not ids:
         sys.exit("[错误] 这一批没有可改写的正文段落")
+    if len(ids) != len(set(ids)):
+        sys.exit("[错误] 段落 id 重复，拒绝处理")
 
     bad = [i for i in ids if i not in block_map]
     if bad:
@@ -862,6 +914,9 @@ def cmd_apply(args):
 
     edits = {}
     if os.path.exists(args.edits):
+        existing = load_json(args.edits)
+        if not isinstance(existing, dict) or existing.get("source_sha256") != data["source_sha256"]:
+            sys.exit("[错误] 已有 edits 来源不明或属于另一原稿，请使用新的工作目录")
         edits = {str(k): v for k, v in load_edits(args.edits).items()}
     before = len(edits)
     for pid, chunk in zip(ids, chunks):
@@ -880,7 +935,7 @@ def cmd_apply(args):
             print(f"  {pid}: {chunk[:48]}")
         return
 
-    write_json(args.edits, edits)
+    write_json(args.edits, {"schema_version": 1, "source_sha256": data["source_sha256"], "edits": edits})
     print(f"[apply] {label}：写入 {len(ids)} 段 -> {args.edits}（累计 {before} -> {len(edits)} 段）")
     if drift:
         print(
@@ -970,14 +1025,73 @@ def load_json(path):
 
 
 def write_json(path, obj):
-    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
+    folder = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(folder, exist_ok=True)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder,
+                                         suffix=".tmp", delete=False) as f:
+            tmp = f.name
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        sys.exit(f"[错误] 无法读取来源文件：{path}")
+    return digest.hexdigest()
+
+
+def verify_blocks_source(path, source):
+    if not path:
+        print("[提示] 未提供 --blocks；仅在新版 edits 携带指纹时自动验证来源", file=sys.stderr)
+        return
+    data = load_json(path)
+    expected = data.get("source_sha256")
+    if not expected:
+        sys.exit("[错误] blocks 缺少来源指纹，请重新 split")
+    if not source or not os.path.isfile(source) or file_digest(source) != expected:
+        sys.exit("[错误] 原稿与 split 时的来源不一致，请重新 split 并重新生成改写")
+
+
+def verify_edits_source(path, source):
+    data = load_json(path)
+    if isinstance(data, dict) and "schema_version" in data:
+        if data.get("source_sha256") != file_digest(source):
+            sys.exit("[错误] edits 的来源指纹与原稿不一致，拒绝套用其他文档的改写")
+    else:
+        print("[提示] 旧格式 edits 没有来源指纹，请配合 --blocks 并人工核对 id", file=sys.stderr)
+
+
+def guard_output_paths(args):
+    inputs = [getattr(args, k, None) for k in ("docx", "blocks", "input", "prompt")]
+    if args.cmd in ("apply", "batch", "status"):
+        data = load_json(args.blocks)
+        if isinstance(data, dict) and isinstance(data.get("source"), str):
+            inputs.append(data["source"])
+    outputs = [getattr(args, k, None) for k in ("output", "diff_md", "progress")]
+    if args.cmd in ("write", "check", "status"):
+        inputs.append(args.edits)
+    if args.cmd == "apply":
+        outputs.append(args.edits)
+    inputs = [p for p in inputs if p]
+    outputs = [p for p in outputs if p]
+    for i, out in enumerate(outputs):
+        if any(same_file(out, p) for p in inputs + outputs[:i]):
+            sys.exit("[错误] 输出路径与输入或其他输出重合，拒绝覆盖")
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="论文降 AIGC 率工具四件套：split / batch / write / check"
+        description="论文表达整改：split / batch / apply / status / write / check"
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -999,6 +1113,7 @@ def main():
     s3 = sub.add_parser("write", help="改写结果 -> 新 docx")
     s3.add_argument("docx")
     s3.add_argument("edits")
+    s3.add_argument("--blocks", default=None, help="split 清单，用于验证原稿来源指纹")
     s3.add_argument("-o", "--output", required=True)
     s3.add_argument("--diff-md", default=None)
     s3.add_argument("--force", action="store_true", help="强制改写含超链接的段落（会使链接文字重复，慎用）")
@@ -1008,6 +1123,7 @@ def main():
     s4 = sub.add_parser("check", help="改写前后硬指标自检")
     s4.add_argument("docx")
     s4.add_argument("edits")
+    s4.add_argument("--blocks", default=None, help="split 清单，用于验证原稿来源指纹")
     s4.add_argument("-o", "--output", default="work/check.json")
     s4.add_argument("--allow-non-para", action="store_true", help="允许把非正文段落计入自检（默认忽略）")
     s4.add_argument("--force", action="store_true", help="把含超链接的段落也计入自检（与 write --force 配套）")
@@ -1030,6 +1146,7 @@ def main():
     s6.set_defaults(func=cmd_status)
 
     args = ap.parse_args()
+    guard_output_paths(args)
     args.func(args)
 
 

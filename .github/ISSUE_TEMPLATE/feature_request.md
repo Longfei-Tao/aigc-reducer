@@ -23,4 +23,4 @@ labels: enhancement
 
 ## 补充
 
-> 本项目不接受「绕过检测」「自动生成内容」类的功能建议，见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+> 本项目不接受「绕过检测」「自动生成内容」类的功能建议，见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
