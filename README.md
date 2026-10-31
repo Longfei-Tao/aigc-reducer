@@ -4,7 +4,9 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![Agent Skills](https://img.shields.io/badge/format-Agent%20Skills-6E56CF.svg)](https://github.com/anthropics/skills)
 
-**给中文论文做表达整改：脚本定位与回写，模型改写，人工核对事实与成品。**
+**给中文论文做表达整改：提交原稿与检测报告，默认只得到修改后的 Word 文件。**
+
+校验在内部完成；默认不生成审计报告、自检 JSON、对照表或其他附件。只有用户明确要求时才额外导出。
 
 Edit wording in Chinese academic DOCX files with paragraph alignment and consistency checks. Detection scores, semantic equivalence and identical layout are not guaranteed.
 
@@ -131,12 +133,12 @@ flowchart LR
     G --> H[write<br/>回写新文档]
     H --> I[check<br/>硬指标自检]
     I -->|fail| F
-    I -->|pass| J[对照表<br/>+ 复检提醒]
+    I -->|pass| J[仅交付修改后的 Word]
 ```
 
 ## 命令参考
 
-六个子命令串成流水线。每篇论文使用独立工作目录；下例 `work/` 只供单篇试跑。先 check 再 write，成品重新打开核对。`--blocks` 校验 split 后原稿是否改变；新版 apply 结果自带原稿指纹；只有旧无指纹格式不提供此选项时不能防止旧 id 错位。
+六个子命令串成流水线。技能执行时每篇论文使用独立临时工作目录，中间文件不交付；下例 `work/` 只供开发者手动试跑。先 check 再 write，成品重新打开核对。`--blocks` 校验 split 后原稿是否改变；新版 apply 结果自带原稿指纹；只有旧无指纹格式不提供此选项时不能防止旧 id 错位。
 
 以下多行命令使用 Bash 续行语法。PowerShell 请合成一行（删除行末反斜杠）；SKILL.md 中有单行示例。
 
@@ -203,7 +205,7 @@ python skills/aigc-reducer/scripts/docx_tool.py status work/blocks.json
 
 ```bash
 python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.json --blocks work/blocks.json \
-  -o 论文_降AI版.docx --diff-md work/对照表.md
+  -o 论文_降AI版.docx
 ```
 
 新版 `apply` 生成的 `edits.json` 自带来源指纹：
@@ -236,7 +238,7 @@ python skills/aigc-reducer/scripts/docx_tool.py write 论文.docx work/edits.jso
 ### 6. `check` —— 硬指标自检
 
 ```bash
-python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.json --blocks work/blocks.json -o work/check.json
+python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.json --blocks work/blocks.json
 ```
 
 | 指标 | 合格线 | 不达标 |
@@ -251,7 +253,9 @@ python skills/aigc-reducer/scripts/docx_tool.py check 论文.docx work/edits.jso
 
 引用标记检查方括号写法 `[1]`、`[2-4]`（GB/T 7714）；中文论文里的年份括注「（2021）」不作引用计。含超链接的段落 `write` 会跳过，`check` 同样不计入指标，保证自检数字与成品一致。
 
-`check` 比较原稿与 edits，**不读取成品 Word**。它不能证明术语、单位、否定和结论不变；交付前需重新打开成品并检查页面。fail 写出报告后退出 1，pass/warn 退出 0。
+`check` 比较原稿与 edits，**不读取成品 Word**。它不能证明术语、单位、否定和结论不变；交付前需重新打开成品并检查页面。默认仅执行检查，不生成报告文件；fail 退出 1，pass/warn 退出 0。
+
+开发调试或用户明确要求时，可用 `check -o work/check.json` 导出自检 JSON，用 `write --diff-md work/对照表.md` 导出对照表；默认技能流程不使用这些参数。
 
 `verdict` 分三档：`pass` / `warn`（可交付但需说明）/ `fail`（必须修）。
 
@@ -351,7 +355,7 @@ aigc-reducer/
 
 如果你用 AI 参与了写作，正确做法是按所在学校 / 期刊的规定如实声明。**使用者对学术诚信负全部责任。**
 
-工具会在交付时明确提醒复检，不承诺分数，这是设计上的刻意选择。
+默认交付仅含 Word 文件；必要的未解决问题会简短说明。是否复检及如何披露 AI 辅助，请按机构要求处理；工具不承诺检测分数。
 
 ## License
 

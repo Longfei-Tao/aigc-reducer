@@ -6,7 +6,7 @@
   batch   从 split 结果里取一批段落，拼成可直接发送的改写请求
   apply   模型回复 -> edits.json（段落数不符直接拒绝）
   status  查看各批完成情况，中断后续跑
-  write   改写结果 -> 新 docx（保留原样式）+ 对照表
+  write   改写结果 -> 新 docx（对照表仅按需导出）
   check   改写前后硬指标自检
 
 依赖：python-docx
@@ -17,8 +17,8 @@
   python docx_tool.py batch work/blocks.json --id 3 --prompt references/prompt.md -o work/batch3.txt
   python docx_tool.py apply work/blocks.json --batch 3 --input work/reply3.txt -o work/edits.json
   python docx_tool.py status work/blocks.json
-  python docx_tool.py write 论文.docx work/edits.json -o 论文_降AI版.docx --diff-md work/对照表.md
-  python docx_tool.py check 论文.docx work/edits.json -o work/check.json
+  python docx_tool.py check 论文.docx work/edits.json
+  python docx_tool.py write 论文.docx work/edits.json -o 论文_降AI版.docx
 """
 
 import argparse
@@ -812,7 +812,8 @@ def cmd_check(args):
         "per_para": per_para,
     }
 
-    write_json(args.output, out)
+    if args.output:
+        write_json(args.output, out)
     print(f"[check] {verdict.upper()}  改动 {len(per_para)} 段")
     print(f"  字数  {len(old_text)} -> {len(new_text)}  ({char_pct:+.1f}%)")
     print(f"  句号  {po['period']} -> {pn['period']}  ({period_pct:+.1f}%)   逗号 {po['comma']} -> {pn['comma']}")
@@ -820,7 +821,8 @@ def cmd_check(args):
         print(f"  [X] {x}")
     for x in warnings:
         print(f"  [!] {x}")
-    print(f"  报告 -> {args.output}")
+    if args.output:
+        print(f"  报告 -> {args.output}")
     if verdict == "fail":
         raise SystemExit(1)
 
@@ -1115,7 +1117,7 @@ def main():
     s3.add_argument("edits")
     s3.add_argument("--blocks", default=None, help="split 清单，用于验证原稿来源指纹")
     s3.add_argument("-o", "--output", required=True)
-    s3.add_argument("--diff-md", default=None)
+    s3.add_argument("--diff-md", default=None, help="可选：显式导出逐段对照表（默认不生成）")
     s3.add_argument("--force", action="store_true", help="强制改写含超链接的段落（会使链接文字重复，慎用）")
     s3.add_argument("--allow-non-para", action="store_true", help="允许改写标题/图注等非正文段落（默认拒绝）")
     s3.set_defaults(func=cmd_write)
@@ -1124,7 +1126,7 @@ def main():
     s4.add_argument("docx")
     s4.add_argument("edits")
     s4.add_argument("--blocks", default=None, help="split 清单，用于验证原稿来源指纹")
-    s4.add_argument("-o", "--output", default="work/check.json")
+    s4.add_argument("-o", "--output", default=None, help="可选：显式导出自检 JSON（默认仅内部检查，不生成文件）")
     s4.add_argument("--allow-non-para", action="store_true", help="允许把非正文段落计入自检（默认忽略）")
     s4.add_argument("--force", action="store_true", help="把含超链接的段落也计入自检（与 write --force 配套）")
     s4.set_defaults(func=cmd_check)

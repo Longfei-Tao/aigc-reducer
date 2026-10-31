@@ -2,17 +2,23 @@
 name: aigc-reducer
 description: >-
   在用户要求中文论文表达润色、去 AI 味或根据 AIGC 报告整改时，
-  按指定提示词分批处理已有 docx，生成新文档、段落对照表与指标报告。
+  按指定提示词分批处理已有 docx，默认只交付修改后的 Word 文件。
   不用于生成研究内容、判定作者身份、去除生成内容标识或保证通过检测。
 license: MIT
 metadata:
-  version: "1.3.0"
+  version: "1.3.1"
   display_name: "论文降 AIGC 率"
 ---
 
 # 中文论文表达整改
 
 脚本负责段落定位、回复对齐和 Word 回写；模型负责表达改写；报告阅读依赖宿主的 PDF/图片能力，脚本不解析 PDF，也不自动调用模型。
+
+## 默认交付
+
+用户提供原稿和官方 AIGC 检测报告后，完成定位、改写及内部校验，**默认只生成并交付修改后的 `.docx`**。不生成或附送审计报告、自检报告、对照表、改写说明、摘要或其他附件，也不在回复中展开这些内容。最终回复只给 Word 文件链接。仅在存在影响使用的未解决问题（如部分段落无法处理、校验失败或明显格式损失）时，补充一句必要说明，不能把未完成的文件宣称为已完成。
+
+只有用户另行明确要求报告或对照表时，才启用相应导出参数。
 
 ## 处理边界
 
@@ -30,18 +36,18 @@ metadata:
 
 ## 输入与范围
 
-需要 `.docx`。旧 `.doc`、PDF 论文先请用户转换并检查转换结果；检测报告可以是 PDF、截图、文本或口述。
+需要 `.docx`。旧 `.doc`、PDF 论文先请用户转换并检查转换结果；检测报告可来自知网、维普、万方等平台，可以是 PDF、截图、文本或口述。
 
 先读取报告，按 [references/report-parsing.md](references/report-parsing.md) 定位章节。宿主缺少 PDF/OCR 能力时，使用用户提供的章节或片段，不能臆造报告内容。没有分节报告时明确范围；已有明确授权的范围直接执行，否则列出候选章节让用户确认。多项匹配必须明确到批次/id，不自动取第一项。
 
 ## 执行
 
-下例的 `<技能目录>` 使用实际绝对路径。每篇论文使用独立工作目录（如 `work/论文A/`）；路径含空格时加引号。以下为 shell 通用的单行命令，PowerShell 不用反斜杠续行。
+下例的 `<技能目录>` 使用实际绝对路径。每篇论文使用宿主提供的独立临时工作目录（下例 `<临时工作目录>` 替换为实际绝对路径），blocks/edits/请求/回复仅作内部中间文件，不放到交付目录、不作为附件；路径含空格时加引号。以下为 shell 通用的单行命令，PowerShell 不用反斜杠续行。
 
 1. 拆分并保存来源指纹：
 
 ```text
-python "<技能目录>/scripts/docx_tool.py" split "论文.docx" -o "work/论文A/blocks.json" --batch-chars 1200
+python "<技能目录>/scripts/docx_tool.py" split "论文.docx" -o "<临时工作目录>/blocks.json" --batch-chars 1200
 ```
 
 阅读 `summary`、`sections` 和 `batches`。单段超过字数上限时独立成批，上限不是截断规则。标题、参考文献、致谢、附录、题注、公式及复杂对象不改；表格、页眉页脚、文本框、脚注正文不在处理范围。
@@ -49,13 +55,13 @@ python "<技能目录>/scripts/docx_tool.py" split "论文.docx" -o "work/论文
 2. 按已确定的范围生成请求：
 
 ```text
-python "<技能目录>/scripts/docx_tool.py" batch "work/论文A/blocks.json" --id 1 --prompt "<技能目录>/references/prompt.md" -o "work/论文A/batch1.txt"
+python "<技能目录>/scripts/docx_tool.py" batch "<临时工作目录>/blocks.json" --id 1 --prompt "<技能目录>/references/prompt.md" -o "<临时工作目录>/batch1.txt"
 ```
 
 可用 `--ids 1,2` 或唯一匹配的 `--section`。三个选择器只用一个。读取请求进行改写，回复只含按原序排列的段落，段落间空一行；不得合并、拆分或重排段落。保存原始回复后对齐：
 
 ```text
-python "<技能目录>/scripts/docx_tool.py" apply "work/论文A/blocks.json" --batch 1 --input "work/论文A/reply1.txt" -o "work/论文A/edits.json" --progress "work/论文A/progress.json"
+python "<技能目录>/scripts/docx_tool.py" apply "<临时工作目录>/blocks.json" --batch 1 --input "<临时工作目录>/reply1.txt" -o "<临时工作目录>/edits.json" --progress "<临时工作目录>/progress.json"
 ```
 
 apply 生成含 schema_version/source_sha256/edits 的结果，旧无指纹结果只兼容读取，不能继续累积。apply 只检查段数，不验证段落顺序或事实；逐段核对原文和回复。段数不等会拒绝写入。不要把编号 id 当作段落正文。仅在确认回复包含列表前缀时用 `--strip-number`。
@@ -63,27 +69,27 @@ apply 生成含 schema_version/source_sha256/edits 的结果，旧无指纹结�
 3. 每批检查，全部完成后回写：
 
 ```text
-python "<技能目录>/scripts/docx_tool.py" check "论文.docx" "work/论文A/edits.json" --blocks "work/论文A/blocks.json" -o "work/论文A/check.json"
-python "<技能目录>/scripts/docx_tool.py" write "论文.docx" "work/论文A/edits.json" --blocks "work/论文A/blocks.json" -o "论文_表达整改_v1.docx" --diff-md "work/论文A/对照表.md"
+python "<技能目录>/scripts/docx_tool.py" check "论文.docx" "<临时工作目录>/edits.json" --blocks "<临时工作目录>/blocks.json"
+python "<技能目录>/scripts/docx_tool.py" write "论文.docx" "<临时工作目录>/edits.json" --blocks "<临时工作目录>/blocks.json" -o "论文_表达整改_v1.docx"
 ```
 
-`fail` 必须修复，最多重试同一批两次，仍失败则停下并交代问题。`warn` 需说明。数值、百分号、比较符号或引用次数变化属于 fail，风格指标仅 warn。
+`fail` 必须修复，最多重试同一批两次，仍失败则停下并交代问题。`warn` 在内部核对；仅对影响使用且无法消除的问题作一句必要说明。数值、百分号、比较符号或引用次数变化属于 fail，风格指标仅 warn。
 
-write 拒绝已有目标文件；再次生成使用新文件名。不要用 `--force` 或 `--allow-non-para` 绕过结构保护；复杂对象即使放宽段落类型也拒绝改写。局部加粗、斜体、上下标等字符格式可能丢失，独立脚注引用的位置可能偏移，必须转述提示。
+write 拒绝已有目标文件；再次生成使用新文件名。不要用 `--force` 或 `--allow-non-para` 绕过结构保护；复杂对象即使放宽段落类型也拒绝改写。局部加粗、斜体、上下标等字符格式可能丢失，独立脚注引用的位置可能偏移，内部核对提示，仅在影响使用且无法消除时简短说明。
 
 4. 中断恢复：
 
 ```text
-python "<技能目录>/scripts/docx_tool.py" status "work/论文A/blocks.json" -e "work/论文A/edits.json"
+python "<技能目录>/scripts/docx_tool.py" status "<临时工作目录>/blocks.json" -e "<临时工作目录>/edits.json"
 ```
 
 status 的“完成”仅表示 edits 中存在这些 id，不能表示质量通过、成品已生成或报告全部章节已覆盖。progress 是辅助记录，以 edits 和实际自检为准；不要并发写同一个工作目录。
 
 ## 成品核验与交付
 
-check 检查原稿与 edits 的差异，不读取生成的 Word。交付前必须重新打开成品，对照目标段落、未改段落、引用和关键数字；有 Word/LibreOffice 渲染能力时查看页面并核对图片、公式、表格、脚注与分页，无此能力如实说明未做视觉核验。不要仅凭 PASS 宣称格式和事实全部正确。
+check 检查原稿与 edits 的差异，不读取生成的 Word。交付前必须重新打开成品，对照目标段落、未改段落、引用和关键数字；有 Word/LibreOffice 渲染能力时查看页面并核对图片、公式、表格、脚注与分页，未做视觉核验时不得声称已完成该项检查。不要仅凭 PASS 宣称格式和事实全部正确。
 
-交付新 docx、逐段对照表和 check.json，列出跳过段落与格式限制。提醒用户人工审阅并按机构要求披露 AI 辅助；如需复检，使用同一个检测器和同一口径，不比较不同平台分数。
+最终仅交付修改后的 docx 链接，不附对照表、check.json、审计结论或内部工作文件。自检在内部执行：check 不加 -o，write 不加 --diff-md。保留原稿与用户的检测报告；临时中间文件按宿主临时目录的生命周期管理，不擅自清理用户已有文件。用户明确索要报告时，才用 check -o 或 write --diff-md 导出。
 
 ## 环境与开发验证
 

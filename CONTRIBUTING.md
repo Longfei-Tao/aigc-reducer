@@ -50,10 +50,10 @@ python docx_tool.py split ../../../样例.docx -o ../../../work/blocks.json
 python docx_tool.py batch ../../../work/blocks.json --id 1 --prompt ../references/prompt.md
 # 把回复存成 reply.txt（段落之间空一行）
 python docx_tool.py apply ../../../work/blocks.json --batch 1 --input reply.txt -o ../../../work/edits.json
-python docx_tool.py check ../../../样例.docx ../../../work/edits.json -o ../../../work/check.json
+python docx_tool.py check ../../../样例.docx ../../../work/edits.json
 ```
 
-check 结果取决于所填的改写；fail 退出 1，必须检查报告并修复。
+check 结果取决于所填的改写；fail 退出 1，必须检查结果并修复。
 
 ### 新增检查项或子命令
 

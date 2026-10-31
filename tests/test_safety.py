@@ -6,6 +6,28 @@ from test_pipeline import Base, Document, OxmlElement, docx_tool, make_doc, run
 
 
 class TestSafety(Base):
+    def test_default_check_creates_no_report_and_keeps_failure_exit(self):
+        for name, text, expected in (
+            ("no-report-pass", Document(str(self.sample)).paragraphs[1].text, 0),
+            ("no-report-fail", "引用和数据被遗漏。", 1),
+        ):
+            with self.subTest(name=name):
+                folder = self.dir / name
+                folder.mkdir()
+                edits = self.edits(name + ".json", {1: text})
+                code, _, err = run("check", self.sample, edits, cwd=folder)
+                self.assertEqual(code, expected, err)
+                self.assertEqual(list(folder.iterdir()), [], "默认校验不应生成任何报告文件")
+
+    def test_default_write_creates_only_word(self):
+        folder = self.dir / "word-only"
+        folder.mkdir()
+        edits = self.edits("word-only.json", {1: "保留文字的改写。"})
+        out = folder / "modified.docx"
+        code, _, err = run("write", self.sample, edits, "-o", out, cwd=folder)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(list(folder.iterdir()), [out])
+
     def edits(self, name, data):
         path = self.dir / name
         path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
