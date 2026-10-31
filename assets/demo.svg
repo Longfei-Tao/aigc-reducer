@@ -1,32 +1,36 @@
-<svg viewBox="0 0 900 404" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
-<title>论文降 AIGC 率效果示意</title>
-<desc>同一段文字改写前后对比：删除主观表述、句号减少、数字与引用标记原样保留，自检通过。</desc>
-<style>
-.zh{font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
-.ttl{font-size:15px;font-weight:500}
-.tag{font-size:12px;font-weight:500}
-.body{font-size:13px;font-weight:400}
-.meta{font-size:12px;font-weight:400}
-</style>
-
-<text class="zh ttl" x="40" y="26" fill="#2C2C2A">论文表达整改 · 单段改写示意（非检测结果）</text>
-
-<rect x="40" y="48" width="820" height="124" rx="10" fill="#FFFFFF" stroke="#D3D1C7" stroke-width="0.5"/>
-<text class="zh tag" x="60" y="72" fill="#5F5E5A">改前</text>
-<text class="zh body" x="60" y="100" fill="#2C2C2A">本研究旨在探讨术后早期营养干预对加速康复外科效果的影响。通过对 2023 年 6 月</text>
-<text class="zh body" x="60" y="126" fill="#2C2C2A">至 2024 年 5 月期间收治的 186 例患者进行回顾性分析，<tspan fill="#A32D2D" font-weight="500">我们认为</tspan>早期营养干预能够显著提升</text>
-<text class="zh body" x="60" y="152" fill="#2C2C2A">患者的康复质量，缩短住院时间 [1]。</text>
-
-<line x1="450" y1="172" x2="450" y2="196" stroke="#888780" stroke-width="1.5"/>
-<path d="M444 190L450 198L456 190" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-
-<rect x="40" y="200" width="820" height="124" rx="10" fill="#EAF3DE" stroke="#639922" stroke-width="0.5"/>
-<text class="zh tag" x="60" y="224" fill="#3B6D11">改后</text>
-<text class="zh body" x="60" y="252" fill="#173404">本研究主要看术后早期营养干预对加速康复外科效果有没有影响，对 2023 年 6 月至</text>
-<text class="zh body" x="60" y="278" fill="#173404">2024 年 5 月收治的 186 例患者做了回顾性分析，发现早期营养干预能提升患者的康复</text>
-<text class="zh body" x="60" y="304" fill="#173404">质量，住院时间也缩短了 [1]。</text>
-
-<text class="zh meta" x="40" y="356" fill="#5F5E5A"><tspan>字数 110 → 103</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18">句号 2 → 1</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18">数字 5/5 保留</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18">引用 [1] 保留</tspan><tspan dx="18" fill="#B4B2A9">·</tspan><tspan dx="18" fill="#3B6D11" font-weight="500">自检 PASS</tspan></text>
-
-<text class="zh meta" x="40" y="382" fill="#888780">主观表述「我们认为」已删除，专业词「显著提升」换为「能提升」，保留段落属性；局部格式与分页仍需核对。</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">AIGC Reducer 合成文本改写示意</title>
+  <desc id="desc">摘要改写前后并排比较，保留时间、样本、引用和显著性表述，不展示检测分数。</desc>
+  <style>text{font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif}</style>
+  <rect width="1200" height="680" rx="18" fill="#F4F6F2" />
+  <path d="M18 0H1182Q1200 0 1200 18V146H0V18Q0 0 18 0" fill="#153D37" />
+  <text x="42" y="59" font-size="33" fill="#FFFFFF" font-weight="700">AIGC REDUCER</text>
+  <text x="42" y="108" font-size="23" fill="#DCEAE1" font-weight="400">改写表达，保留事实。默认只交付 Word。</text>
+  <text x="942" y="59" font-size="20" fill="#DCEAE1" font-weight="400">改写示意</text>
+  <text x="942" y="100" font-size="20" fill="#DCEAE1" font-weight="400">非检测结果</text>
+  <rect x="36" y="172" width="546" height="294" rx="12" fill="#FFFFFF" stroke="#D7DFD7" />
+  <text x="60" y="210" font-size="19" fill="#8A5341" font-weight="700">BEFORE · 改写前</text>
+  <rect x="618" y="172" width="546" height="294" rx="12" fill="#FFFFFF" stroke="#D7DFD7" />
+  <text x="642" y="210" font-size="19" fill="#176B52" font-weight="700">AFTER · 改写后</text>
+  <rect x="36" y="488" width="348" height="90" rx="10" fill="#E5EDE5" />
+  <text x="56" y="519" font-size="16" fill="#566B60" font-weight="400">字数 · 含空格与标点</text>
+  <text x="56" y="555" font-size="23" fill="#153D37" font-weight="700">110 → 108</text>
+  <rect x="426" y="488" width="348" height="90" rx="10" fill="#E5EDE5" />
+  <text x="446" y="519" font-size="16" fill="#566B60" font-weight="400">句号数量</text>
+  <text x="446" y="555" font-size="23" fill="#153D37" font-weight="700">2 → 1</text>
+  <rect x="816" y="488" width="348" height="90" rx="10" fill="#E5EDE5" />
+  <text x="836" y="519" font-size="16" fill="#566B60" font-weight="400">数值与引用</text>
+  <text x="836" y="555" font-size="23" fill="#153D37" font-weight="700">规则检查一致</text>
+  <text x="38" y="619" font-size="18" fill="#566B60" font-weight="400">合成文本与编辑示意；未调用检测平台，不能据此推断 AI 率下降。</text>
+  <text x="38" y="650" font-size="17" fill="#566B60" font-weight="400">保留 2023—2024 年、186 例、引用 [1] 与效果强度；完整原文见 examples/rewrites.json。</text>
+  <text x="60" y="252" font-size="21" fill="#263B3A" font-weight="400">本研究旨在探讨术后早期营养干预对加速康复外科</text>
+  <text x="60" y="285" font-size="21" fill="#263B3A" font-weight="400">效果的影响。通过对 2023 年 6 月至 2024 年 5 月</text>
+  <text x="60" y="318" font-size="21" fill="#263B3A" font-weight="400">期间收治的 186 例患者进行回顾性分析，我们认为</text>
+  <text x="60" y="351" font-size="21" fill="#263B3A" font-weight="400">早期营养干预能够显著提升患者的康复质量，缩短</text>
+  <text x="60" y="384" font-size="21" fill="#263B3A" font-weight="400">住院时间 [1]。</text>
+  <text x="642" y="252" font-size="21" fill="#263B3A" font-weight="400">本研究主要看术后早期营养干预对加速康复外科效</text>
+  <text x="642" y="285" font-size="21" fill="#263B3A" font-weight="400">果有没有影响，对 2023 年 6 月至 2024 年 5 月收</text>
+  <text x="642" y="318" font-size="21" fill="#263B3A" font-weight="400">治的 186 例患者做了回顾性分析，结果提示早期营</text>
+  <text x="642" y="351" font-size="21" fill="#263B3A" font-weight="400">养干预能显著提升患者的康复质量，也能缩短住院</text>
+  <text x="642" y="384" font-size="21" fill="#263B3A" font-weight="400">时间 [1]。</text>
 </svg>
