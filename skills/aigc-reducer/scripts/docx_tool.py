@@ -758,6 +758,11 @@ def cmd_check(args):
         if po["period"]
         else 0.0
     )
+    semicolon_pct = (
+        round((pn["semicolon"] - po["semicolon"]) / max(po["semicolon"], 1) * 100, 1)
+        if po["semicolon"]
+        else 0.0
+    )
 
     issues, warnings = [], []
     for r in per_para:
@@ -790,10 +795,12 @@ def cmd_check(args):
             warnings.append(f"数字出现次数减少 {len(all_nums_reduced)} 处：{all_nums_reduced[:6]}")
         if banned_hits:
             issues.append(f"残留主观表述：{sorted(set(banned_hits))}")
-        if po["period"] and period_pct > -20:
-            warnings.append(f"句号仅减少 {abs(period_pct)}%，提示词要求「减少句号使用」")
-        if pn["comma"] <= po["comma"]:
-            warnings.append("逗号数未增加，未体现「多用逗号衔接」")
+        if pn["semicolon"] > po["semicolon"]:
+            warnings.append(f"分号 {po['semicolon']}→{pn['semicolon']} 增加，与「减少分号使用」不符")
+        # 拆短句会把逗号改成句号，两者必须合并计数，否则合格的拆句会被误判
+        old_link, new_link = po["comma"] + po["period"], pn["comma"] + pn["period"]
+        if new_link < old_link:
+            warnings.append(f"逗号与句号合计 {old_link}→{new_link} 减少，未体现「多用逗号、句号衔接」")
     else:
         warnings.append("没有可自检的段落：edits 为空，或所有 id 都被拦截")
 
@@ -807,7 +814,7 @@ def cmd_check(args):
         "punct": {
             "period": {"old": po["period"], "new": pn["period"], "pct": period_pct},
             "comma": {"old": po["comma"], "new": pn["comma"]},
-            "semicolon": {"old": po["semicolon"], "new": pn["semicolon"]},
+            "semicolon": {"old": po["semicolon"], "new": pn["semicolon"], "pct": semicolon_pct},
         },
         "numbers_lost": all_nums_lost,
         "numbers_reduced": all_nums_reduced,
@@ -828,7 +835,12 @@ def cmd_check(args):
         write_json(args.output, out)
     print(f"[check] {verdict.upper()}  改动 {len(per_para)} 段")
     print(f"  字数  {len(old_text)} -> {len(new_text)}  ({char_pct:+.1f}%)")
-    print(f"  句号  {po['period']} -> {pn['period']}  ({period_pct:+.1f}%)   逗号 {po['comma']} -> {pn['comma']}")
+    semi_stat = (
+        f"分号  {po['semicolon']} -> {pn['semicolon']}  ({semicolon_pct:+.1f}%)"
+        if po["semicolon"]
+        else f"分号  {po['semicolon']} -> {pn['semicolon']}"
+    )
+    print(f"  {semi_stat}   逗号 {po['comma']} -> {pn['comma']}   句号 {po['period']} -> {pn['period']}")
     for x in issues:
         print(f"  [X] {x}")
     for x in warnings:

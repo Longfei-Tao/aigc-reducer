@@ -338,6 +338,47 @@ class TestCheck(Base):
         self.assertEqual(report["paras_edited"], 0, "超链接段不应计入自检")
         self.assertEqual(report["skipped_link_ids"], [0])
 
+    def test_semicolon_increase_warns(self):
+        doc = self.dir / "semi.docx"
+        make_doc(doc, ["纳入标准为年龄十八岁以上；排除标准为合并严重器质性疾病；所有患者均签署知情同意书。"])
+        edits = self.dir / "e_semi.json"
+        edits.write_text(
+            '{"0": "纳入标准是年龄十八岁以上；排除标准是合并严重器质性疾病；'
+            '所有患者都签了知情同意书；分组按入院顺序确定。"}',
+            encoding="utf-8",
+        )
+        out = self.dir / "c_semi.json"
+        code, _, err = run("check", doc, edits, "-o", out)
+        self.assertEqual(code, 0, err)
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(report["verdict"], "warn")
+        self.assertEqual(report["punct"]["semicolon"], {"old": 2, "new": 3, "pct": 50.0})
+        self.assertTrue(any("分号" in w for w in report["warnings"]), report["warnings"])
+
+    def test_connector_decrease_warns(self):
+        doc = self.dir / "comma.docx"
+        make_doc(doc, ["干预组每日补充两次，对照组按常规流程处理，两组的住院时间都记录下来。"])
+        edits = self.dir / "e_comma.json"
+        edits.write_text('{"0": "干预组每日补充两次，对照组按常规流程处理。"}', encoding="utf-8")
+        out = self.dir / "c_comma.json"
+        run("check", doc, edits, "-o", out)
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(report["verdict"], "warn")
+        self.assertTrue(any("逗号与句号合计" in w for w in report["warnings"]), report["warnings"])
+
+    def test_splitting_sentences_is_not_penalized(self):
+        # 拆短句会把逗号改成句号：合计不变时不应报错，否则合格的拆句会被误判
+        doc = self.dir / "split_sent.docx"
+        src = "干预组每天补充两次营养剂，对照组按常规流程处理，两组的住院时间都做了记录。"
+        new = "干预组每天补充两次营养剂。对照组按常规流程处理。两组的住院时间都做了记录。"
+        make_doc(doc, [src])
+        edits = self.dir / "e_split.json"
+        edits.write_text(json.dumps({"0": new}, ensure_ascii=False), encoding="utf-8")
+        out = self.dir / "c_split.json"
+        run("check", doc, edits, "-o", out)
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(report["verdict"], "pass", report["warnings"])
+
     def test_sample_regression_passes(self):
         edits = self.dir / "e_pass.json"
         edits.write_text(
